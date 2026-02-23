@@ -645,12 +645,18 @@ function exitCastMode() {
 
   pickerAnimating = false;
 
-  // Remove cast-active after the picker has faded out (0.4s transition)
-  // so the arrow fades back in after the picker disappears.
-  setTimeout(() => {
-    if (state.castMode) return;  // re-entered cast mode during delay
+  // If a destination was just set, delay removing cast-active so the
+  // picker fades out before the arrow fades back in.  If there's no
+  // destination (cancel, or cast failed), remove immediately — there's
+  // no arrow to reveal, so no stagger is needed.
+  if (state.destination) {
+    setTimeout(() => {
+      if (state.castMode) return;  // re-entered cast mode during delay
+      document.getElementById('app').classList.remove('cast-active');
+    }, 400);
+  } else {
     document.getElementById('app').classList.remove('cast-active');
-  }, 400);
+  }
 }
 
 function findClosestStepIndex(targetMeters) {
@@ -817,10 +823,10 @@ function render() {
   const heading = getDeviceHeading();
 
   // --- Cast mode rendering ---
-  // In cast mode the arrow is hidden via CSS; we show the ring and the
-  // live heading so the user can aim the phone before pressing Cast.
+  // In cast mode the arrow is hidden via CSS (.cast-active forces
+  // compass-rose to opacity:1 and arrow/tail to opacity:0).
+  // We do NOT add .visible here — that class is only for normal nav.
   if (state.castMode) {
-    dom.compassRose.classList.add('visible');
 
     if (heading != null) {
       dom.bearingDisplay.textContent = `${Math.round(heading)}°`;
