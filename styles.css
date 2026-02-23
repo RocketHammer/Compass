@@ -1,0 +1,170 @@
+/* ===== Reset & Base ===== */
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #1a1a2e;
+  color: #eee;
+  -webkit-user-select: none;
+  user-select: none;
+  overscroll-behavior: none;
+}
+
+/* ===== App Layout ===== */
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+/* ===== Status Bar ===== */
+#status-bar {
+  display: flex;
+  justify-content: space-between;
+  padding: max(12px, env(safe-area-inset-top)) 16px 4px;
+  font-size: 0.75rem;
+}
+
+.status-badge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  transition: color 0.3s;
+}
+
+.status-badge.good  { color: #4ecdc4; }
+.status-badge.warn  { color: #ffd166; }
+.status-badge.error { color: #e94560; }
+
+/* ===== Compass Container ===== */
+#compass-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  touch-action: none;
+}
+
+/* ===== Compass Rose / Arrow ===== */
+#compass-rose {
+  width: 65vw;
+  max-width: 280px;
+  aspect-ratio: 1;
+}
+
+.compass-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ===== Readouts below the compass ===== */
+#bearing-display {
+  font-size: 2.5rem;
+  font-weight: 300;
+  margin-top: 20px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+#distance-display {
+  font-size: 1rem;
+  color: rgba(255, 255, 255, 0.55);
+  margin-top: 4px;
+}
+
+/* ===== Controls Footer ===== */
+#controls {
+  padding: 12px 16px max(24px, env(safe-area-inset-bottom));
+}
+
+.input-row {
+  display: flex;
+  gap: 8px;
+}
+
+#dest-input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #eee;
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.3s;
+}
+
+#dest-input:focus {
+  border-color: rgba(233, 69, 96, 0.6);
+}
+
+#dest-input::placeholder {
+  color: rgba(255, 255, 255, 0.25);
+}
+
+#set-dest-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  background: #e94560;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+#set-dest-btn:active {
+  background: #c73a52;
+}
+
+#dest-info {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.45);
+  margin-top: 8px;
+  text-align: center;
+}
+
+#current-coords {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.35);
+  margin-top: 8px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+#permission-btn {
+  width: 100%;
+  padding: 12px;
+  margin-top: 12px;
+  border: 2px solid #e94560;
+  border-radius: 8px;
+  background: transparent;
+  color: #e94560;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+#permission-btn:active {
+  background: rgba(233, 69, 96, 0.15);
+}
+
+/* ===== Utility ===== */
+.hidden {
+  display: none !important;
+}

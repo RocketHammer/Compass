@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#1a1a2e">
+  <meta name="description" content="PWA Compass - Navigate to your destination">
+
+  <link rel="manifest" href="manifest.json">
+
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Compass">
+
+  <title>Compass</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <div id="app">
+
+    <header id="status-bar">
+      <span id="gps-status" class="status-badge">GPS: waiting</span>
+      <span id="heading-status" class="status-badge">Compass: waiting</span>
+    </header>
+
+    <main id="compass-container">
+
+      <div id="compass-rose">
+        <svg viewBox="0 0 200 200" class="compass-svg">
+          <!-- Outer ring — subtle boundary for the compass face -->
+          <circle cx="100" cy="100" r="95" fill="none"
+                  stroke="rgba(255,255,255,0.1)" stroke-width="2"/>
+
+          <!-- Direction arrow — points up (0°).
+               JS rotates the parent #compass-rose so the arrow aims at
+               the destination (or north when no destination is set). -->
+          <path d="M100 20 L82 115 L100 98 L118 115 Z" fill="#e94560"/>
+
+          <!-- Tail dot — visual anchor at the arrow's base -->
+          <circle cx="100" cy="155" r="6" fill="rgba(233,69,96,0.3)"/>
+        </svg>
+      </div>
+
+      <div id="bearing-display">--</div>
+      <div id="distance-display">Set a destination to begin</div>
+
+    </main>
+
+    <footer id="controls">
+      <div class="input-row">
+        <input type="text" id="dest-input"
+               placeholder="Coords, Maps URL, or Plus Code"
+               autocomplete="off" enterkeyhint="go">
+        <button id="set-dest-btn" type="button">Set</button>
+      </div>
+      <div id="dest-info" class="hidden"></div>
+      <div id="current-coords">Locating...</div>
+      <!-- Shown only on iOS when compass permission is needed -->
+      <button id="permission-btn" class="hidden" type="button">
+        Tap to enable compass
+      </button>
+    </footer>
+
+  </div>
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js')
+        .then(reg => console.log('SW registered:', reg.scope))
+        .catch(err => console.error('SW registration failed:', err));
+    }
+  </script>
+  <script src="app.js"></script>
+</body>
+</html>

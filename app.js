@@ -1,0 +1,883 @@
+// ===== State =====
+const state = {
+  position: null,    // { lat, lng, accuracy } — latest GPS fix
+  destination: null, // { lat, lng } — where the arrow points
+  gpsWatchId: null,  // watchPosition ID for cleanup
+  gpsError: null,    // last geolocation error message, or null
+};
+
+// ===== DOM References =====
+const dom = {};
+
+function cacheDom() {
+  dom.compassRose     = document.getElementById('compass-rose');
+  dom.bearingDisplay  = document.getElementById('bearing-display');
+  dom.distanceDisplay = document.getElementById('distance-display');
+  dom.gpsStatus       = document.getElementById('gps-status');
+  dom.headingStatus   = document.getElementById('heading-status');
+  dom.destInput       = document.getElementById('dest-input');
+  dom.setDestBtn      = document.getElementById('set-dest-btn');
+  dom.destInfo        = document.getElementById('dest-info');
+  dom.currentCoords   = document.getElementById('current-coords');
+  dom.permissionBtn   = document.getElementById('permission-btn');
+}
+
+// ===== Geolocation =====
+
+function startGps() {
+  if (!('geolocation' in navigator)) {
+    state.gpsError = 'Geolocation not supported';
+    return;
+  }
+
+  state.gpsWatchId = navigator.geolocation.watchPosition(
+    (pos) => {
+      state.position = {
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        accuracy: pos.coords.accuracy,
+      };
+      state.gpsError = null;
+    },
+    (err) => {
+      const messages = {
+        1: 'GPS permission denied',
+        2: 'GPS unavailable',
+        3: 'GPS timed out',
+      };
+      state.gpsError = messages[err.code] || 'GPS error';
+    },
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+  );
+}
+
+function stopGps() {
+  if (state.gpsWatchId != null) {
+    navigator.geolocation.clearWatch(state.gpsWatchId);
+    state.gpsWatchId = null;
+  }
+}
+
+// ===== Device Orientation =====
+// ---------------------------------------------------------------------------
+// ABSOLUTE vs NON-ABSOLUTE DeviceOrientationEvent
+//
+// The browser exposes two orientation events.  Understanding why both exist
+// — and which one a compass must prefer — is critical to getting a correct
+// heading.
+//
+//   ┌─────────────────────────┬────────────────────────────────────────────┐
+//   │ 'deviceorientation      │ 'deviceorientation'                      │
+//   │  absolute'              │  (standard / non-absolute)               │
+//   ├─────────────────────────┼────────────────────────────────────────────┤
+//   │ alpha is measured from  │ alpha is measured from an ARBITRARY       │
+//   │ EARTH'S MAGNETIC NORTH. │ reference — typically wherever the phone  │
+//   │ 0° always = north.      │ was pointing when the listener started.  │
+//   │                         │ 0° has no fixed geographic meaning.      │
+//   ├─────────────────────────┼────────────────────────────────────────────┤
+//   │ Requires a magnetometer │ Works with just a gyroscope (more        │
+//   │ (compass hardware).     │ devices support it).                     │
+//   ├─────────────────────────┼────────────────────────────────────────────┤
+//   │ Chrome Android 50+.     │ All mobile browsers (universal).         │
+//   │ Firefox Android.        │                                          │
+//   │ NOT fired on iOS.       │                                          │
+//   └─────────────────────────┴────────────────────────────────────────────┘
+//
+// WHY A COMPASS NEEDS ABSOLUTE:
+//   A compass must know where north is.  The non-absolute event only tells
+//   you how the phone has ROTATED SINCE LISTENING STARTED — useful for
+//   gaming or gesture detection, useless for pointing at a geographic
+//   bearing.  So we always prefer the absolute event when it exists.
+//
+// WHY WE STILL NEED THE NON-ABSOLUTE EVENT:
+//   iOS Safari never fires 'deviceorientationabsolute'.  Instead it puts
+//   the compass heading in a webkit-proprietary property on the standard
+//   event: event.webkitCompassHeading.  And on some Android browsers,
+//   the standard event carries an event.absolute boolean flag that tells
+//   us alpha IS north-referenced even though it came from the non-absolute
+//   event name.  So we listen to both and pick the best data from each.
+//
+// ROTATION ANGLES (all three delivered by both events):
+//
+//   alpha (0-360)  — rotation around the Z axis (perpendicular to screen).
+//                    This is the compass-relevant axis: it tells us which
+//                    direction the top of the phone is pointing.
+//                    We use ONLY this axis for compass heading.
+//
+//   beta (-180 to 180) — tilt front-to-back (X axis).
+//                         0° = flat, 90° = upright.
+//                         Not used for compass heading.
+//
+//   gamma (-90 to 90)  — tilt left-to-right (Y axis).
+//                         0° = flat, ±90° = on its side.
+//                         Not used for compass heading.
+//
+// LISTENER STRATEGY:
+//   We attach BOTH event listeners simultaneously rather than picking one.
+//   This is important because:
+//     1. The absolute event may take a moment to arrive while the
+//        magnetometer calibrates — the standard event provides interim data.
+//     2. On iOS, only the standard event fires (with webkitCompassHeading).
+//     3. Once the absolute event fires, we set a flag so the standard
+//        handler yields to it — the highest-quality source always wins.
+// ---------------------------------------------------------------------------
+
+// Shared heading state — null means "no reading available yet"
+let currentHeading = null;
+
+// Tracks which event source is active so the UI can show calibration status.
+// Ranked from most to least trustworthy:
+//   'absolute' — deviceorientationabsolute event (best: hardware compass north)
+//   'webkit'   — iOS webkitCompassHeading (good: Apple's fused compass)
+//   'alpha-absolute' — standard event but event.absolute === true (good)
+//   'alpha-relative' — standard event, alpha is NOT north-referenced (unreliable)
+//   'unavailable'    — no sensor data at all
+let headingSource = 'unavailable';
+
+// Set to true once the dedicated absolute event fires successfully.
+// Tells the standard-event handler to stop competing.
+let absoluteEventActive = false;
+
+/**
+ * Returns the current compass heading of the device in degrees (0-360),
+ * where 0 = north, 90 = east, 180 = south, 270 = west.
+ *
+ * Returns null when the sensor is unavailable, permission was denied,
+ * or the device hasn't delivered a reading yet. Callers should treat null
+ * as "heading unknown" and show a fallback UI (e.g. a calibration prompt
+ * or a static north indicator).
+ *
+ * @returns {number | null}
+ */
+function getDeviceHeading() {
+  return currentHeading;
+}
+
+/**
+ * Requests the necessary permissions and starts listening for device
+ * orientation events. Must be called from a user gesture on iOS.
+ *
+ * @returns {Promise<boolean>} — true if listening started, false if the
+ *          sensor is unsupported or permission was denied.
+ */
+async function startHeadingUpdates() {
+  // --- iOS 13+ permission gate ---
+  // Safari requires an explicit user-gesture-driven permission request
+  // before orientation events will fire.  If the method doesn't exist
+  // (Android, older iOS) we skip straight to attaching listeners.
+  if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+    try {
+      const permission = await DeviceOrientationEvent.requestPermission();
+      if (permission !== 'granted') {
+        headingSource = 'unavailable';
+        return false;
+      }
+    } catch {
+      headingSource = 'unavailable';
+      return false;
+    }
+  }
+
+  // --- Attach BOTH listeners ---
+  // We don't pick one-or-the-other.  Both are attached so:
+  //   - The absolute handler fires on Chrome/Firefox Android and provides
+  //     the best heading immediately.
+  //   - The standard handler fires on ALL platforms and covers iOS
+  //     (webkitCompassHeading) plus the gap before the absolute event
+  //     calibrates.
+  //   - Once the absolute handler fires, it sets absoluteEventActive=true
+  //     so the standard handler yields automatically.
+  let anyListenerAttached = false;
+
+  if ('ondeviceorientationabsolute' in window) {
+    window.addEventListener('deviceorientationabsolute', onAbsoluteOrientation);
+    anyListenerAttached = true;
+  }
+
+  if ('ondeviceorientation' in window) {
+    window.addEventListener('deviceorientation', onStandardOrientation);
+    anyListenerAttached = true;
+  }
+
+  if (!anyListenerAttached) {
+    // No orientation API at all (desktop browser, very old device).
+    headingSource = 'unavailable';
+    return false;
+  }
+
+  return true;
+}
+
+
+// ---------------------------------------------------------------------------
+// Handler: 'deviceorientationabsolute'  (PREFERRED — compass north)
+// ---------------------------------------------------------------------------
+// This event only fires on browsers that have magnetometer access AND
+// expose the absolute variant (Chrome Android 50+, Firefox Android).
+// alpha is measured clockwise from magnetic north:
+//   0° = north, 90° = east, 180° = south, 270° = west.
+//
+// This is the gold standard for compass heading — we use alpha directly
+// and mark the absolute source as active so the standard handler yields.
+// ---------------------------------------------------------------------------
+function onAbsoluteOrientation(event) {
+  if (event.alpha == null) {
+    // Sensor returned null — magnetometer still calibrating or hardware
+    // issue.  Keep the previous reading rather than blinking to null.
+    return;
+  }
+
+  currentHeading = event.alpha;
+  headingSource = 'absolute';
+  absoluteEventActive = true;
+}
+
+
+// ---------------------------------------------------------------------------
+// Handler: 'deviceorientation'  (FALLBACK — three tiers of quality)
+// ---------------------------------------------------------------------------
+// The standard event fires on every mobile browser, but the meaning of
+// alpha varies wildly.  We check three cases in order of reliability:
+//
+//   Tier 1 — event.webkitCompassHeading  (iOS Safari)
+//     Apple's proprietary property.  Degrees clockwise from magnetic north.
+//     This is Apple's fused sensor output and is the ONLY way to get a
+//     compass heading on iOS, since iOS never fires the absolute event.
+//
+//   Tier 2 — event.absolute === true  (some Android browsers)
+//     The W3C spec includes a boolean `absolute` property on every
+//     DeviceOrientationEvent.  When true, the browser is telling us that
+//     alpha is already referenced to magnetic north — even though this is
+//     the standard event, not the absolute one.  Firefox Android commonly
+//     does this.  We treat it the same as the absolute event.
+//
+//   Tier 3 — event.absolute === false / undefined  (last resort)
+//     Alpha is relative to an ARBITRARY reference direction.  The spec
+//     says it "may be the direction the device was pointing when the
+//     sensor was initialized."  This is NOT reliable for a compass.
+//     We still store it (converted to a clockwise-from-initial heading)
+//     as a best-effort fallback so the arrow moves rather than being
+//     frozen, but we flag the source as 'alpha-relative' so the UI can
+//     warn the user that the heading is approximate.
+// ---------------------------------------------------------------------------
+function onStandardOrientation(event) {
+  // If the dedicated absolute event is already providing data, don't
+  // compete.  That source is strictly better than anything we can
+  // extract from the standard event.
+  if (absoluteEventActive) return;
+
+  // --- Tier 1: iOS webkitCompassHeading ---
+  if (event.webkitCompassHeading != null) {
+    currentHeading = event.webkitCompassHeading;
+    headingSource = 'webkit';
+    return;
+  }
+
+  if (event.alpha == null) return;
+
+  // --- Tier 2: standard event with absolute flag ---
+  // event.absolute is a boolean defined by the W3C spec.  When true,
+  // alpha is north-referenced — same semantics as the absolute event.
+  if (event.absolute === true) {
+    currentHeading = event.alpha;
+    headingSource = 'alpha-absolute';
+    return;
+  }
+
+  // --- Tier 3: non-absolute alpha (unreliable for compass) ---
+  // Alpha is measured counter-clockwise from an arbitrary reference in
+  // the W3C coordinate frame.  We invert it to get a clockwise value
+  // so that visual rotation direction is intuitive, but the zero-point
+  // is meaningless — it is NOT north.
+  currentHeading = (360 - event.alpha) % 360;
+  headingSource = 'alpha-relative';
+}
+
+
+/**
+ * Stops listening for orientation events. Call on teardown or when
+ * the user navigates away.
+ */
+function stopHeadingUpdates() {
+  window.removeEventListener('deviceorientationabsolute', onAbsoluteOrientation);
+  window.removeEventListener('deviceorientation', onStandardOrientation);
+  currentHeading = null;
+  headingSource = 'unavailable';
+  absoluteEventActive = false;
+}
+
+// ===== Bearing & Distance Calculation =====
+// ---------------------------------------------------------------------------
+// FORWARD AZIMUTH (initial bearing) on a sphere
+//
+// Problem: given two points on Earth's surface, what compass direction do
+// you face at point A to walk in a straight line toward point B?
+//
+// On a flat plane this is trivial — just atan2(dy, dx).  On a sphere the
+// "straight line" is a great-circle arc, and the direction you initially
+// face (the forward azimuth) is NOT the same as the direction you'd face
+// at the midpoint or at the destination, because meridians converge toward
+// the poles.  The formula below computes that initial direction.
+//
+// The math uses the spherical law of sines and cosines applied to the
+// "navigation triangle" formed by the two points and the North Pole:
+//
+//        North Pole
+//           ╱╲
+//          ╱  ╲
+//     a   ╱    ╲  b          a = 90° − lat_A  (co-latitude of A)
+//        ╱      ╲            b = 90° − lat_B  (co-latitude of B)
+//       ╱   C    ╲           C = Δlng          (angle at the pole)
+//      A ──────── B
+//
+// We want the angle at vertex A — the bearing from A toward B.
+//
+// From the spherical sine/cosine rules:
+//   bearing = atan2(
+//     sin(Δlng) · cos(lat_B),
+//     cos(lat_A) · sin(lat_B) − sin(lat_A) · cos(lat_B) · cos(Δlng)
+//   )
+//
+// The atan2 numerator is the EAST-WEST component of the direction:
+//   sin(Δlng) · cos(lat_B) projects the longitude difference onto the
+//   equatorial plane, scaled by how far B is from the pole.  Near the
+//   equator cos(lat_B) ≈ 1 so longitude degrees map nearly 1:1 to
+//   east-west distance.  Near the poles cos(lat_B) → 0, shrinking the
+//   east-west component because meridians converge.
+//
+// The atan2 denominator is the NORTH-SOUTH component:
+//   cos(lat_A)·sin(lat_B) is the "how far north B is" term.
+//   sin(lat_A)·cos(lat_B)·cos(Δlng) subtracts the part of that northward
+//   distance already accounted for by A's own latitude.  Together they
+//   give the net northward displacement as seen from A along the
+//   great-circle arc.
+//
+// atan2(east, north) then gives the angle measured clockwise from north,
+// which is exactly what a compass bearing is.
+// ---------------------------------------------------------------------------
+
+/**
+ * Calculates the initial compass bearing (forward azimuth) from point A
+ * to point B along a great-circle path on a sphere.
+ *
+ * @param {number} lat1 — latitude of point A in decimal degrees
+ * @param {number} lng1 — longitude of point A in decimal degrees
+ * @param {number} lat2 — latitude of point B in decimal degrees
+ * @param {number} lng2 — longitude of point B in decimal degrees
+ * @returns {number} bearing in degrees, 0-360 (0 = north, 90 = east, etc.)
+ */
+function calculateBearing(lat1, lng1, lat2, lng2) {
+  // --- Step 1: Convert degrees → radians ---
+  // Trig functions in JavaScript operate on radians.
+  // 1 degree = π/180 radians.
+  const toRad = Math.PI / 180;
+  const φ1 = lat1 * toRad;   // latitude of A in radians
+  const φ2 = lat2 * toRad;   // latitude of B in radians
+  const Δλ = (lng2 - lng1) * toRad;  // longitude difference in radians
+
+  // --- Step 2: East-west component (x) ---
+  // Project the longitude separation onto the equatorial plane.
+  // Multiplying sin(Δλ) by cos(φ2) accounts for meridian convergence:
+  // at high latitudes the same Δλ spans less physical east-west distance
+  // because the longitude lines squeeze together near the poles.
+  const x = Math.sin(Δλ) * Math.cos(φ2);
+
+  // --- Step 3: North-south component (y) ---
+  // This is the net northward displacement from A toward B along the
+  // great-circle arc.
+  //
+  //   cos(φ1)·sin(φ2):
+  //     "How far north is B?"  sin(φ2) is B's distance from the equator,
+  //     scaled by cos(φ1) to project it onto A's local horizon.
+  //
+  //   sin(φ1)·cos(φ2)·cos(Δλ):
+  //     "How much of that northward distance does A's own latitude already
+  //     account for?"  This correction prevents the bearing from being
+  //     biased northward when A is already at a high latitude.
+  //
+  // Subtracting gives the net north-south component as seen from A.
+  const y = Math.cos(φ1) * Math.sin(φ2)
+          - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+
+  // --- Step 4: atan2(east, north) → bearing angle ---
+  // atan2 returns the angle in radians from the positive Y axis (north)
+  // toward the positive X axis (east), measured counter-clockwise in
+  // standard math convention.  But because we passed (x, y) — i.e.
+  // (east, north) — atan2 gives us the clockwise-from-north angle
+  // directly, which is exactly how compass bearings work.
+  //
+  // The result is in the range (−π, π]:
+  //   positive = clockwise from north (eastward bearings)
+  //   negative = counter-clockwise from north (westward bearings)
+  const θ = Math.atan2(x, y);
+
+  // --- Step 5: Normalize to 0-360° ---
+  // Convert radians → degrees, then shift negative values into the
+  // positive range.  For example, a bearing of −90° (due west) becomes
+  // 270°, matching the standard compass convention where north = 0°,
+  // east = 90°, south = 180°, west = 270°.
+  const bearing = ((θ * 180 / Math.PI) + 360) % 360;
+
+  return bearing;
+}
+
+/**
+ * Calculates the great-circle distance between two points using the
+ * Haversine formula.
+ *
+ * @param {number} lat1 — latitude of point A in decimal degrees
+ * @param {number} lng1 — longitude of point A in decimal degrees
+ * @param {number} lat2 — latitude of point B in decimal degrees
+ * @param {number} lng2 — longitude of point B in decimal degrees
+ * @returns {number} distance in meters
+ */
+function calculateDistance(lat1, lng1, lat2, lng2) {
+  const R = 6_371_000; // Earth's mean radius in meters
+  const toRad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * toRad;
+  const dLng = (lng2 - lng1) * toRad;
+
+  // Haversine of the central angle
+  const a = Math.sin(dLat / 2) ** 2
+          + Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad)
+          * Math.sin(dLng / 2) ** 2;
+
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// ===== Compass Rendering =====
+
+// Smoothed rotation angle — tracked across frames so we can always take
+// the shortest rotational path and avoid the 359°→1° full-spin problem.
+let displayAngle = 0;
+
+/**
+ * Main render loop — called every animation frame.
+ * Reads the latest sensor state, computes the arrow angle, and updates
+ * the DOM.  All DOM writes happen here to keep the rest of the code
+ * purely data-driven.
+ */
+function render() {
+  updateStatusDisplay();
+
+  const heading = getDeviceHeading();
+
+  // Determine target bearing:
+  //   - Destination set → point at destination
+  //   - No destination  → point at north (bearing = 0), acting as a simple compass
+  let targetBearing = 0;
+  let distance = null;
+
+  if (state.destination && state.position) {
+    targetBearing = calculateBearing(
+      state.position.lat, state.position.lng,
+      state.destination.lat, state.destination.lng
+    );
+    distance = calculateDistance(
+      state.position.lat, state.position.lng,
+      state.destination.lat, state.destination.lng
+    );
+  }
+
+  if (heading != null) {
+    // Arrow rotation = bearing − heading.
+    // Example: facing east (heading=90), destination is north (bearing=0)
+    //   → arrow = 0−90 = −90° → points left on screen → correct, north
+    //   is to our left when facing east.
+    const targetAngle = targetBearing - heading;
+
+    // Shortest-path interpolation: normalize the delta to [−180, 180]
+    // so the arrow never spins the long way around.
+    let diff = targetAngle - displayAngle;
+    diff = ((diff % 360) + 540) % 360 - 180;
+
+    // Exponential lerp — 0.2 gives ~95% convergence in ~250ms at 60fps.
+    // Fast enough to feel responsive, slow enough to filter sensor jitter.
+    displayAngle += diff * 0.2;
+
+    dom.compassRose.style.transform = `rotate(${displayAngle}deg)`;
+  }
+
+  // Update text readouts
+  if (state.destination && state.position && heading != null) {
+    dom.bearingDisplay.textContent = `${Math.round(targetBearing)}°`;
+    dom.distanceDisplay.textContent = formatDistance(distance);
+  } else if (!state.destination) {
+    // No destination — show device heading as a simple compass
+    dom.bearingDisplay.textContent = heading != null
+      ? `${Math.round(heading)}°`
+      : '--';
+    dom.distanceDisplay.textContent = 'Set a destination to begin';
+  } else {
+    dom.bearingDisplay.textContent = '--';
+    dom.distanceDisplay.textContent = 'Acquiring sensors\u2026';
+  }
+
+  requestAnimationFrame(render);
+}
+
+/**
+ * Formats a distance in meters to a human-readable string.
+ * Under 1 km: shows meters.  1 km and above: shows km with one decimal.
+ */
+function formatDistance(meters) {
+  if (meters == null) return '--';
+  if (meters < 1000) return `${Math.round(meters)} m`;
+  return `${(meters / 1000).toFixed(1)} km`;
+}
+
+/**
+ * Pushes the latest sensor state into the status bar badges and
+ * the current-coordinates readout.
+ */
+function updateStatusDisplay() {
+  // --- GPS badge ---
+  if (state.gpsError) {
+    dom.gpsStatus.textContent = state.gpsError;
+    dom.gpsStatus.className = 'status-badge error';
+  } else if (state.position) {
+    const acc = Math.round(state.position.accuracy);
+    dom.gpsStatus.textContent = `GPS: \u00B1${acc}m`;
+    dom.gpsStatus.className = 'status-badge' + (acc <= 20 ? ' good' : ' warn');
+  } else {
+    dom.gpsStatus.textContent = 'GPS: waiting';
+    dom.gpsStatus.className = 'status-badge';
+  }
+
+  // --- Compass badge ---
+  const sourceLabels = {
+    'absolute':       ['Compass', 'good'],
+    'webkit':         ['Compass', 'good'],
+    'alpha-absolute': ['Compass', 'good'],
+    'alpha-relative': ['Compass (approx)', 'warn'],
+    'unavailable':    ['No compass', 'error'],
+  };
+  const [label, cls] = sourceLabels[headingSource] || ['Compass: waiting', ''];
+  dom.headingStatus.textContent = label;
+  dom.headingStatus.className = 'status-badge' + (cls ? ` ${cls}` : '');
+
+  // --- Current coordinates ---
+  if (state.position) {
+    dom.currentCoords.textContent =
+      `${state.position.lat.toFixed(5)}, ${state.position.lng.toFixed(5)}`;
+  }
+}
+
+// ===== Destination Input Parsing =====
+
+/**
+ * Parses a user-supplied string and attempts to extract latitude and longitude.
+ *
+ * Supported formats:
+ *   1. Raw coordinate pair  — "40.7128, -74.0060" or "40.7128 -74.0060"
+ *   2. Google Maps URL       — various google.com/maps URL patterns
+ *   3. Plus Code (Open Location Code) — "87G8Q2PQ+VX"
+ *
+ * @param {string} input — the raw string from the user
+ * @returns {{ lat: number, lng: number, type: string } | null}
+ *          Returns an object with coordinates and detected type, or null if
+ *          the input could not be parsed.
+ */
+function parseDestinationInput(input) {
+  if (!input || typeof input !== 'string') return null;
+  const trimmed = input.trim();
+
+  // Try each parser in order of specificity.
+  // Google Maps URLs are checked first because they may contain raw coordinate
+  // substrings — matching them early avoids a false positive on the raw parser.
+  return parseGoogleMapsUrl(trimmed)
+      || parsePlusCode(trimmed)
+      || parseRawCoordinates(trimmed);
+}
+
+
+// ---------------------------------------------------------------------------
+// 1. Raw Coordinate Pair
+// ---------------------------------------------------------------------------
+// Matches strings like:
+//   "40.7128, -74.0060"    — comma-separated
+//   "40.7128 -74.0060"     — space-separated
+//   "-33.8688, 151.2093"   — negative values (southern / western hemispheres)
+//
+// The regex captures an optional sign, digits, optional decimal portion for
+// each of the two numbers, separated by a comma and/or whitespace.
+// After extraction the values are validated against geographic bounds:
+//   latitude  must be in [-90,  90]
+//   longitude must be in [-180, 180]
+// ---------------------------------------------------------------------------
+const RAW_COORD_RE = /^([+-]?\d+(?:\.\d+)?)[,\s]+([+-]?\d+(?:\.\d+)?)$/;
+
+function parseRawCoordinates(str) {
+  const match = str.match(RAW_COORD_RE);
+  if (!match) return null;
+
+  const lat = parseFloat(match[1]);
+  const lng = parseFloat(match[2]);
+
+  if (!isValidCoordinate(lat, lng)) return null;
+
+  return { lat, lng, type: 'raw' };
+}
+
+
+// ---------------------------------------------------------------------------
+// 2. Google Maps URL
+// ---------------------------------------------------------------------------
+// Google Maps uses several URL patterns that embed coordinates:
+//
+//   a) Query parameter:  google.com/maps?q=LAT,LNG
+//   b) "At" notation:    google.com/maps/@LAT,LNG,ZOOM
+//   c) Place pages:      google.com/maps/place/NAME/@LAT,LNG,ZOOM
+//   d) Directions:       google.com/maps/dir/ORIGIN/LAT,LNG
+//
+// Strategy: first confirm the URL belongs to a Google Maps domain, then
+// apply two regexes that cover the patterns above:
+//   - /@(-?\d+\.\d+),(-?\d+\.\d+)   — catches @ notation (b, c)
+//   - [?&]q=(-?\d+\.\d+),(-?\d+\.\d+) — catches query param (a)
+//   - /dir/.../ fallback             — catches directions endpoint (d)
+//
+// Note: Shortened URLs (maps.app.goo.gl/…) cannot be resolved offline.
+//       The function returns null for those — the caller should inform the
+//       user to paste the full URL instead.
+// ---------------------------------------------------------------------------
+const GMAPS_DOMAIN_RE = /^https?:\/\/(www\.)?(google\.[a-z.]+\/maps|maps\.google\.[a-z.]+|maps\.app\.goo\.gl)/i;
+const GMAPS_AT_RE     = /@(-?\d+\.?\d*),(-?\d+\.?\d*)/;
+const GMAPS_QUERY_RE  = /[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/;
+
+function parseGoogleMapsUrl(str) {
+  if (!GMAPS_DOMAIN_RE.test(str)) return null;
+
+  // Warn-worthy: shortened links can't be followed offline
+  if (/maps\.app\.goo\.gl/i.test(str)) return null;
+
+  // Try the @ notation first (more common in copy-pasted URLs)
+  let match = str.match(GMAPS_AT_RE);
+  if (!match) {
+    // Fall back to query-parameter form
+    match = str.match(GMAPS_QUERY_RE);
+  }
+  if (!match) return null;
+
+  const lat = parseFloat(match[1]);
+  const lng = parseFloat(match[2]);
+
+  if (!isValidCoordinate(lat, lng)) return null;
+
+  return { lat, lng, type: 'google_maps_url' };
+}
+
+
+// ---------------------------------------------------------------------------
+// 3. Plus Code  (Open Location Code)
+// ---------------------------------------------------------------------------
+// Plus Codes are a geocoding system created by Google that encodes a location
+// into a short alphanumeric string.  Example: "87G8Q2PQ+VX"
+//
+// Anatomy of a Plus Code:
+//   - Uses a 20-character alphabet: "23456789CFGHJMPQRVWX"
+//     (chosen to avoid ambiguous characters like 0/O, 1/I/L)
+//   - Contains a '+' separator after the 8th character
+//   - The first 8 characters (4 pairs) encode progressively finer lat/lng
+//     grid cells, each pair narrowing by a factor of 20
+//   - Characters after the '+' refine further using a 4×5 sub-grid
+//
+// Decoding algorithm (simplified):
+//   1. Strip the '+' and pad to 15 characters with '2' (the zero-value char)
+//   2. Walk through character pairs:
+//      - Pairs 1-5 (positions 0-9): each character maps to a base-20 digit.
+//        Odd positions (0,2,4,6,8) contribute to latitude,
+//        even positions (1,3,5,7,9) contribute to longitude.
+//        Each successive pair divides the previous cell by 20.
+//      - Positions 11-14 (the refinement characters after the separator):
+//        each character indexes into a 4-row × 5-column sub-grid,
+//        providing ~3 m × 3 m precision.
+//   3. The final lat/lng is the center of the smallest resolved cell.
+//
+// The implementation below handles full 10+ character codes.
+// Short (relative) codes like "Q2PQ+VX" require a reference location and
+// are not supported here — the user should provide a full code.
+// ---------------------------------------------------------------------------
+const OLC_ALPHABET = '23456789CFGHJMPQRVWX';
+const PLUS_CODE_RE = /^[23456789CFGHJMPQRVWX]{8}\+[23456789CFGHJMPQRVWX]{2,}$/i;
+
+function parsePlusCode(str) {
+  const upper = str.toUpperCase();
+  if (!PLUS_CODE_RE.test(upper)) return null;
+
+  const decoded = decodePlusCode(upper);
+  if (!decoded) return null;
+
+  return { lat: decoded.lat, lng: decoded.lng, type: 'plus_code' };
+}
+
+/**
+ * Decodes a full Open Location Code into a lat/lng center point.
+ *
+ * @param {string} code — uppercase Plus Code with '+' included
+ * @returns {{ lat: number, lng: number } | null}
+ */
+function decodePlusCode(code) {
+  // Strip the '+' separator to get a flat sequence of code characters
+  const stripped = code.replace('+', '');
+
+  // Pad to 15 characters so the refinement section is always present.
+  // '2' is the zero-value character in the OLC alphabet.
+  const padded = stripped.padEnd(15, '2');
+
+  // --- Decode the first 10 characters (5 pairs) ---
+  // Starting resolution: latitude spans 20 degrees, longitude spans 20 degrees.
+  // Each pair narrows by ÷20, giving resolutions of:
+  //   Pair 1: 20°    → Pair 2: 1°    → Pair 3: 0.05° (≈5.5 km)
+  //   Pair 4: 0.0025° (≈275 m)       → Pair 5: 0.000125° (≈14 m)
+  let lat = 0;
+  let lng = 0;
+  let latRes = 20;   // degrees per step for latitude
+  let lngRes = 20;   // degrees per step for longitude
+
+  for (let i = 0; i < 10; i += 2) {
+    const latIdx = OLC_ALPHABET.indexOf(padded[i]);
+    const lngIdx = OLC_ALPHABET.indexOf(padded[i + 1]);
+    if (latIdx < 0 || lngIdx < 0) return null;
+
+    lat += latIdx * latRes;
+    lng += lngIdx * lngRes;
+
+    // Narrow the resolution for the next pair
+    latRes /= 20;
+    lngRes /= 20;
+  }
+
+  // --- Decode refinement characters (positions 10-14) ---
+  // Each refinement character indexes into a 4-row × 5-column sub-grid,
+  // providing ~3 m precision at full length.
+  for (let i = 10; i < padded.length; i++) {
+    const idx = OLC_ALPHABET.indexOf(padded[i]);
+    if (idx < 0) return null;
+
+    const row = Math.floor(idx / 5); // 4 rows  (lat dimension)
+    const col = idx % 5;             // 5 cols  (lng dimension)
+
+    latRes /= 4;
+    lngRes /= 5;
+
+    lat += row * latRes;
+    lng += col * lngRes;
+  }
+
+  // Return the center of the final cell rather than the south-west corner
+  lat += latRes / 2;
+  lng += lngRes / 2;
+
+  // OLC grid is offset: latitude starts at -90, longitude at -180
+  lat -= 90;
+  lng -= 180;
+
+  if (!isValidCoordinate(lat, lng)) return null;
+
+  return { lat, lng };
+}
+
+
+// ---------------------------------------------------------------------------
+// Shared validation helper
+// ---------------------------------------------------------------------------
+function isValidCoordinate(lat, lng) {
+  return Number.isFinite(lat) && Number.isFinite(lng)
+      && lat >= -90 && lat <= 90
+      && lng >= -180 && lng <= 180;
+}
+
+
+// ===== Destination Management =====
+
+const DEST_STORAGE_KEY = 'compass_destination';
+
+/**
+ * Parses the input string, stores the destination, and persists it to
+ * localStorage so it survives page reloads and offline restarts.
+ *
+ * @param {string} input — raw user input (coordinates, URL, or Plus Code)
+ * @returns {boolean} true if the input was valid and saved
+ */
+function setDestination(input) {
+  const parsed = parseDestinationInput(input);
+  if (!parsed) return false;
+
+  state.destination = { lat: parsed.lat, lng: parsed.lng };
+  localStorage.setItem(DEST_STORAGE_KEY, JSON.stringify(state.destination));
+
+  dom.destInfo.textContent =
+    `Destination: ${parsed.lat.toFixed(5)}, ${parsed.lng.toFixed(5)} (${parsed.type})`;
+  dom.destInfo.classList.remove('hidden');
+
+  return true;
+}
+
+/**
+ * Restores a previously saved destination from localStorage on startup.
+ */
+function loadDestination() {
+  try {
+    const saved = localStorage.getItem(DEST_STORAGE_KEY);
+    if (!saved) return;
+    const { lat, lng } = JSON.parse(saved);
+    if (isValidCoordinate(lat, lng)) {
+      state.destination = { lat, lng };
+      dom.destInfo.textContent = `Destination: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+      dom.destInfo.classList.remove('hidden');
+    }
+  } catch {
+    // Corrupt data in storage — silently ignore
+  }
+}
+
+// ===== Initialization =====
+
+async function init() {
+  cacheDom();
+  loadDestination();
+
+  // Wire up destination controls
+  dom.setDestBtn.addEventListener('click', onSetDestination);
+  dom.destInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') onSetDestination();
+  });
+
+  // Start GPS — the browser will prompt for permission automatically
+  startGps();
+
+  // Start compass sensors.  On Android this succeeds immediately.
+  // On iOS it may fail because requestPermission() requires a user gesture;
+  // in that case we surface a button the user can tap.
+  const compassStarted = await startHeadingUpdates();
+  if (!compassStarted && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    dom.permissionBtn.classList.remove('hidden');
+    dom.permissionBtn.addEventListener('click', async () => {
+      const ok = await startHeadingUpdates();
+      if (ok) dom.permissionBtn.classList.add('hidden');
+    }, { once: true });
+  }
+
+  // Kick off the render loop
+  requestAnimationFrame(render);
+}
+
+/**
+ * Handler for the "Set" button and Enter key in the destination input.
+ */
+function onSetDestination() {
+  const input = dom.destInput.value;
+  if (!input.trim()) return;
+
+  const ok = setDestination(input);
+  if (ok) {
+    dom.destInput.value = '';
+    dom.destInput.blur();
+  } else {
+    // Brief red border flash to signal invalid input
+    dom.destInput.style.borderColor = '#e94560';
+    setTimeout(() => { dom.destInput.style.borderColor = ''; }, 1500);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', init);
