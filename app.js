@@ -617,28 +617,40 @@ function enterCastMode() {
   state.castDistanceIndex = findClosestStepIndex(100);  // default 100m
 
   document.getElementById('app').classList.add('cast-active');
-  dom.castPicker.classList.remove('hidden');
-  dom.castControls.classList.remove('hidden');
-
   renderPicker();
 
-  dom.castPicker.addEventListener('touchstart', onPickerTouchStart);
-  dom.castPicker.addEventListener('touchmove',  onPickerTouchMove);
-  dom.castPicker.addEventListener('touchend',   onPickerTouchEnd);
+  // Delay the picker fade-in so it appears AFTER the arrow has faded out.
+  // The arrow transition is 0.4s, so we wait 450ms before revealing.
+  setTimeout(() => {
+    if (!state.castMode) return;  // user cancelled before delay elapsed
+    dom.castPicker.classList.add('visible');
+    dom.castControls.classList.add('visible');
+
+    dom.castPicker.addEventListener('touchstart', onPickerTouchStart);
+    dom.castPicker.addEventListener('touchmove',  onPickerTouchMove);
+    dom.castPicker.addEventListener('touchend',   onPickerTouchEnd);
+  }, 450);
 }
 
 function exitCastMode() {
   state.castMode = false;
 
-  document.getElementById('app').classList.remove('cast-active');
-  dom.castPicker.classList.add('hidden');
-  dom.castControls.classList.add('hidden');
+  // Fade out picker and controls first
+  dom.castPicker.classList.remove('visible');
+  dom.castControls.classList.remove('visible');
 
   dom.castPicker.removeEventListener('touchstart', onPickerTouchStart);
   dom.castPicker.removeEventListener('touchmove',  onPickerTouchMove);
   dom.castPicker.removeEventListener('touchend',   onPickerTouchEnd);
 
   pickerAnimating = false;
+
+  // Remove cast-active after the picker has faded out (0.4s transition)
+  // so the arrow fades back in after the picker disappears.
+  setTimeout(() => {
+    if (state.castMode) return;  // re-entered cast mode during delay
+    document.getElementById('app').classList.remove('cast-active');
+  }, 400);
 }
 
 function findClosestStepIndex(targetMeters) {

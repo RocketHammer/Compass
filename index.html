@@ -43,15 +43,15 @@
           <!-- Arrival indicator — pulsing gold circle, hidden until within threshold -->
           <circle class="arrival-dot" cx="100" cy="100" r="24" fill="#FFD700" opacity="0"/>
         </svg>
-      </div>
 
-      <!-- Cast-a-point distance picker — hidden until 3-swipe gesture -->
-      <div id="cast-picker" class="hidden">
-        <div class="picker-label picker-far"></div>
-        <div class="picker-label picker-near"></div>
-        <div class="picker-label picker-center"></div>
-        <div class="picker-label picker-near"></div>
-        <div class="picker-label picker-far"></div>
+        <!-- Cast-a-point distance picker — hidden until 3-swipe gesture -->
+        <div id="cast-picker">
+          <div class="picker-label picker-far"></div>
+          <div class="picker-label picker-near"></div>
+          <div class="picker-label picker-center"></div>
+          <div class="picker-label picker-near"></div>
+          <div class="picker-label picker-far"></div>
+        </div>
       </div>
 
       <div id="bearing-display">--</div>
@@ -67,7 +67,7 @@
         <button id="set-dest-btn" type="button">Set</button>
       </div>
       <div id="dest-info" class="hidden"></div>
-      <div id="cast-controls" class="hidden">
+      <div id="cast-controls">
         <button id="cast-cancel-btn" type="button">Cancel</button>
         <button id="cast-btn" type="button">Cast</button>
       </div>
