@@ -840,28 +840,46 @@ function render() {
     );
   }
 
+  // Arrival threshold — adapts to current GPS accuracy.  Floor of 10m
+  // prevents flickering when the signal is unusually good.  When accuracy
+  // is poor the zone widens so you still trigger arrival reliably.
+  const accuracy = state.position ? state.position.accuracy : 10;
+  const ARRIVAL_RADIUS = Math.max(10, accuracy);
+  const arrived = distance != null && distance < ARRIVAL_RADIUS;
+
   // Only show and rotate the arrow when a destination is active.
   // The arrow fades in via a CSS transition on the .visible class.
   if (state.destination && state.position && heading != null) {
-    const targetAngle = targetBearing - heading;
+    if (arrived) {
+      // Stop rotating the rose and switch to the arrival indicator
+      dom.compassRose.style.transform = 'none';
+      dom.compassRose.classList.add('visible', 'arrived');
+    } else {
+      dom.compassRose.classList.remove('arrived');
 
-    // Shortest-path interpolation: normalize the delta to [−180, 180]
-    // so the arrow never spins the long way around.
-    let diff = targetAngle - displayAngle;
-    diff = ((diff % 360) + 540) % 360 - 180;
+      const targetAngle = targetBearing - heading;
 
-    // Exponential lerp — 0.2 gives ~95% convergence in ~250ms at 60fps.
-    // Fast enough to feel responsive, slow enough to filter sensor jitter.
-    displayAngle += diff * 0.2;
+      // Shortest-path interpolation: normalize the delta to [−180, 180]
+      // so the arrow never spins the long way around.
+      let diff = targetAngle - displayAngle;
+      diff = ((diff % 360) + 540) % 360 - 180;
 
-    dom.compassRose.style.transform = `rotate(${displayAngle}deg)`;
-    dom.compassRose.classList.add('visible');
+      // Exponential lerp — 0.2 gives ~95% convergence in ~250ms at 60fps.
+      // Fast enough to feel responsive, slow enough to filter sensor jitter.
+      displayAngle += diff * 0.2;
+
+      dom.compassRose.style.transform = `rotate(${displayAngle}deg)`;
+      dom.compassRose.classList.add('visible');
+    }
   } else {
-    dom.compassRose.classList.remove('visible');
+    dom.compassRose.classList.remove('visible', 'arrived');
   }
 
   // Update text readouts
-  if (state.destination && state.position && heading != null) {
+  if (arrived) {
+    dom.bearingDisplay.textContent = 'Arrived';
+    dom.distanceDisplay.textContent = formatDistance(distance);
+  } else if (state.destination && state.position && heading != null) {
     dom.bearingDisplay.textContent = `${Math.round(targetBearing)}°`;
     dom.distanceDisplay.textContent = formatDistance(distance);
   } else if (!state.destination) {
