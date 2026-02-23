@@ -217,8 +217,13 @@ async function startHeadingUpdates() {
 // alpha is measured clockwise from magnetic north:
 //   0° = north, 90° = east, 180° = south, 270° = west.
 //
-// This is the gold standard for compass heading — we use alpha directly
-// and mark the absolute source as active so the standard handler yields.
+// This is the gold standard for compass heading.  We mark the absolute
+// source as active so the standard handler yields.
+//
+// IMPORTANT:  The W3C spec defines alpha as increasing COUNTER-CLOCKWISE
+// when viewed from above (turn left → alpha goes up).  Compass headings
+// increase CLOCKWISE (turn right → heading goes up).  We must invert:
+//   compassHeading = (360 − alpha) % 360
 // ---------------------------------------------------------------------------
 function onAbsoluteOrientation(event) {
   if (event.alpha == null) {
@@ -227,7 +232,7 @@ function onAbsoluteOrientation(event) {
     return;
   }
 
-  currentHeading = event.alpha;
+  currentHeading = (360 - event.alpha) % 360;
   headingSource = 'absolute';
   absoluteEventActive = true;
 }
@@ -278,8 +283,9 @@ function onStandardOrientation(event) {
   // --- Tier 2: standard event with absolute flag ---
   // event.absolute is a boolean defined by the W3C spec.  When true,
   // alpha is north-referenced — same semantics as the absolute event.
+  // Same CCW→CW inversion as onAbsoluteOrientation (see note there).
   if (event.absolute === true) {
-    currentHeading = event.alpha;
+    currentHeading = (360 - event.alpha) % 360;
     headingSource = 'alpha-absolute';
     return;
   }
@@ -570,8 +576,9 @@ function updateStatusDisplay() {
  *
  * Supported formats:
  *   1. Raw coordinate pair  — "40.7128, -74.0060" or "40.7128 -74.0060"
- *   2. Google Maps URL       — various google.com/maps URL patterns
- *   3. Plus Code (Open Location Code) — "87G8Q2PQ+VX"
+ *   2. DMS (Degrees/Min/Sec) — 42°11'36.0"N 88°04'03.9"W
+ *   3. Google Maps URL       — various google.com/maps URL patterns
+ *   4. Plus Code (Open Location Code) — "87G8Q2PQ+VX"
  *
  * @param {string} input — the raw string from the user
  * @returns {{ lat: number, lng: number, type: string } | null}
@@ -586,6 +593,7 @@ function parseDestinationInput(input) {
   // Google Maps URLs are checked first because they may contain raw coordinate
   // substrings — matching them early avoids a false positive on the raw parser.
   return parseGoogleMapsUrl(trimmed)
+      || parseDMS(trimmed)
       || parsePlusCode(trimmed)
       || parseRawCoordinates(trimmed);
 }
@@ -621,7 +629,75 @@ function parseRawCoordinates(str) {
 
 
 // ---------------------------------------------------------------------------
-// 2. Google Maps URL
+// 2. DMS (Degrees, Minutes, Seconds)
+// ---------------------------------------------------------------------------
+// Matches coordinate strings in degree/minute/second notation, for example:
+//
+//   42°11'36.0"N 88°04'03.9"W
+//   42°11'36"N, 88°4'3.9"W       — leading zeros optional, comma optional
+//   42 11 36.0 N 88 04 03.9 W    — plain spaces instead of symbols
+//
+// Each component is:
+//   degrees (integer) + minutes (integer) + seconds (decimal) + hemisphere
+//
+// Conversion to decimal degrees:
+//   decimal = degrees + minutes/60 + seconds/3600
+//
+// The hemisphere letter (N/S for latitude, E/W for longitude) determines sign:
+//   N and E are positive, S and W are negative.
+//
+// The regex accepts the degree symbol (° or \u00B0), ASCII apostrophe or the
+// prime character (\u2032) for minutes, and ASCII double-quote or the
+// double-prime character (\u2033) for seconds — covering both typed and
+// copy-pasted variants.
+// ---------------------------------------------------------------------------
+const DMS_COMPONENT_RE =
+  /(\d{1,3})\s*[°\u00B0]?\s*(\d{1,2})\s*['\u2032]?\s*(\d{1,2}(?:\.\d+)?)\s*["\u2033]?\s*([NSEWnsew])/g;
+
+function parseDMS(str) {
+  // Reset the regex lastIndex since we reuse it with the global flag.
+  DMS_COMPONENT_RE.lastIndex = 0;
+
+  // We expect exactly two DMS components — one for latitude, one for longitude.
+  const parts = [];
+  let m;
+  while ((m = DMS_COMPONENT_RE.exec(str)) !== null) {
+    const deg = parseFloat(m[1]);
+    const min = parseFloat(m[2]);
+    const sec = parseFloat(m[3]);
+    const hem = m[4].toUpperCase();
+
+    // Validate ranges: degrees 0-180, minutes 0-59, seconds 0-59.999…
+    if (min >= 60 || sec >= 60) return null;
+
+    let decimal = deg + min / 60 + sec / 3600;
+
+    // Apply hemisphere sign: S and W are negative.
+    if (hem === 'S' || hem === 'W') decimal = -decimal;
+
+    parts.push({ value: decimal, hemisphere: hem });
+  }
+
+  if (parts.length !== 2) return null;
+
+  // Determine which component is latitude (N/S) and which is longitude (E/W).
+  // Accept them in either order so "88°W 42°N" works just as well.
+  let lat, lng;
+  for (const p of parts) {
+    if (p.hemisphere === 'N' || p.hemisphere === 'S') lat = p.value;
+    else lng = p.value;
+  }
+
+  // Both a lat and lng component must be present.
+  if (lat == null || lng == null) return null;
+  if (!isValidCoordinate(lat, lng)) return null;
+
+  return { lat, lng, type: 'dms' };
+}
+
+
+// ---------------------------------------------------------------------------
+// 3. Google Maps URL
 // ---------------------------------------------------------------------------
 // Google Maps uses several URL patterns that embed coordinates:
 //
@@ -668,7 +744,7 @@ function parseGoogleMapsUrl(str) {
 
 
 // ---------------------------------------------------------------------------
-// 3. Plus Code  (Open Location Code)
+// 4. Plus Code  (Open Location Code)
 // ---------------------------------------------------------------------------
 // Plus Codes are a geocoding system created by Google that encodes a location
 // into a short alphanumeric string.  Example: "87G8Q2PQ+VX"
