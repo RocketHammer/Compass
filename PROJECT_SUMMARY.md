@@ -1,6 +1,6 @@
-# Compass PWA — Project Summary
+# Quest Compass — Project Summary
 
-A Progressive Web App compass for Android that reads device GPS and orientation sensors to point an arrow at a fixed destination. Works fully offline via service worker caching. Deployed on GitHub Pages at `https://rockethammer.github.io/Compass/`.
+A Progressive Web App compass for Android that reads device GPS and orientation sensors to point an arrow at a fixed destination. Works fully offline via service worker caching. Deployed on GitHub Pages.
 
 ## Architecture
 

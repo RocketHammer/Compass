@@ -1,6 +1,6 @@
 {
-  "name": "Compass",
-  "short_name": "Compass",
+  "name": "Quest Compass",
+  "short_name": "Quest Compass",
   "description": "PWA compass that points toward a destination using GPS and device orientation",
   "start_url": "./index.html",
   "display": "standalone",

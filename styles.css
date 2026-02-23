@@ -325,3 +325,8 @@ html, body {
 .hidden {
   display: none !important;
 }
+
+.no-transition,
+.no-transition * {
+  transition: none !important;
+}

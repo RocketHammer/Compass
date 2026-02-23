@@ -616,11 +616,29 @@ function enterCastMode() {
   state.castMode = true;
   state.castDistanceIndex = findClosestStepIndex(100);  // default 100m
 
+  // If the compass rose isn't currently visible (no destination), skip all
+  // fade transitions to prevent a brief arrow flash.  The overlapping
+  // parent opacity ramp-up (0.6s) and child opacity ramp-down (0.4s)
+  // create a window where the arrow is partially visible — killing
+  // transitions on the rose and its children avoids this entirely.
+  const wasHidden = !dom.compassRose.classList.contains('visible');
+  if (wasHidden) {
+    dom.compassRose.classList.add('no-transition');
+  }
+
   document.getElementById('app').classList.add('cast-active');
+
+  if (wasHidden) {
+    void dom.compassRose.offsetHeight;  // commit the no-transition state
+    dom.compassRose.classList.remove('no-transition');
+  }
+
   renderPicker();
 
   // Delay the picker fade-in so it appears AFTER the arrow has faded out.
-  // The arrow transition is 0.4s, so we wait 450ms before revealing.
+  // When transitions were skipped (no destination), use a shorter delay
+  // since there's no arrow animation to wait for.
+  const pickerDelay = wasHidden ? 50 : 450;
   setTimeout(() => {
     if (!state.castMode) return;  // user cancelled before delay elapsed
     dom.castPicker.classList.add('visible');
@@ -629,7 +647,7 @@ function enterCastMode() {
     dom.castPicker.addEventListener('touchstart', onPickerTouchStart);
     dom.castPicker.addEventListener('touchmove',  onPickerTouchMove);
     dom.castPicker.addEventListener('touchend',   onPickerTouchEnd);
-  }, 450);
+  }, pickerDelay);
 }
 
 function exitCastMode() {
@@ -647,15 +665,19 @@ function exitCastMode() {
 
   // If a destination was just set, delay removing cast-active so the
   // picker fades out before the arrow fades back in.  If there's no
-  // destination (cancel, or cast failed), remove immediately — there's
-  // no arrow to reveal, so no stagger is needed.
+  // destination (cancel, or cast failed), remove immediately with
+  // transitions killed — otherwise the parent fading out while the
+  // arrow fades back in creates a brief arrow flash.
   if (state.destination) {
     setTimeout(() => {
       if (state.castMode) return;  // re-entered cast mode during delay
       document.getElementById('app').classList.remove('cast-active');
     }, 400);
   } else {
+    dom.compassRose.classList.add('no-transition');
     document.getElementById('app').classList.remove('cast-active');
+    void dom.compassRose.offsetHeight;  // commit before restoring transitions
+    dom.compassRose.classList.remove('no-transition');
   }
 }
 
