@@ -35,11 +35,20 @@
           <!-- Direction arrow — points up (0°).
                JS rotates the parent #compass-rose so the arrow aims at
                the destination (or north when no destination is set). -->
-          <path d="M100 20 L82 115 L100 98 L118 115 Z" fill="#e94560"/>
+          <path class="compass-arrow" d="M100 20 L82 115 L100 98 L118 115 Z" fill="#e94560"/>
 
           <!-- Tail dot — visual anchor at the arrow's base -->
-          <circle cx="100" cy="155" r="6" fill="rgba(233,69,96,0.3)"/>
+          <circle class="compass-tail" cx="100" cy="155" r="6" fill="rgba(233,69,96,0.3)"/>
         </svg>
+      </div>
+
+      <!-- Cast-a-point distance picker — hidden until 3-swipe gesture -->
+      <div id="cast-picker" class="hidden">
+        <div class="picker-label picker-far"></div>
+        <div class="picker-label picker-near"></div>
+        <div class="picker-label picker-center"></div>
+        <div class="picker-label picker-near"></div>
+        <div class="picker-label picker-far"></div>
       </div>
 
       <div id="bearing-display">--</div>
@@ -55,12 +64,16 @@
         <button id="set-dest-btn" type="button">Set</button>
       </div>
       <div id="dest-info" class="hidden"></div>
+      <div id="cast-controls" class="hidden">
+        <button id="cast-cancel-btn" type="button">Cancel</button>
+        <button id="cast-btn" type="button">Cast</button>
+      </div>
       <div id="current-coords">Locating...</div>
       <!-- Shown only on iOS when compass permission is needed -->
       <button id="permission-btn" class="hidden" type="button">
         Tap to enable compass
       </button>
-      <div id="app-version">v0.4</div>
+      <div id="app-version">v0.5</div>
     </footer>
 
   </div>

@@ -46,6 +46,7 @@ html, body {
 
 /* ===== Compass Container ===== */
 #compass-container {
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -168,6 +169,115 @@ html, body {
 
 #permission-btn:active {
   background: rgba(233, 69, 96, 0.15);
+}
+
+/* ===== Cast Mode ===== */
+
+/* In cast mode the arrow and tail fade out but the ring stays */
+.compass-arrow,
+.compass-tail {
+  transition: opacity 0.4s ease-out;
+}
+
+#app.cast-active .compass-arrow,
+#app.cast-active .compass-tail {
+  opacity: 0;
+}
+
+/* Lock compass rose visible and stop rotation in cast mode */
+#app.cast-active #compass-rose {
+  transform: none !important;
+  opacity: 1;
+}
+
+/* Hide normal footer controls in cast mode */
+#app.cast-active .input-row,
+#app.cast-active #dest-info,
+#app.cast-active #current-coords,
+#app.cast-active #permission-btn {
+  display: none !important;
+}
+
+/* ===== Cast Distance Picker ===== */
+#cast-picker {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 65vw;
+  max-width: 280px;
+  height: 65vw;
+  max-height: 280px;
+  touch-action: none;
+  z-index: 2;
+}
+
+.picker-label {
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.picker-center {
+  font-size: 2rem;
+  font-weight: 600;
+  color: #e94560;
+}
+
+.picker-near {
+  font-size: 1.2rem;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.picker-far {
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.2);
+}
+
+/* ===== Cast Controls ===== */
+#cast-controls {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+#cast-cancel-btn {
+  flex: 1;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+#cast-cancel-btn:active {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+#cast-btn {
+  flex: 1;
+  padding: 12px;
+  border: none;
+  border-radius: 8px;
+  background: #e94560;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+#cast-btn:active {
+  background: #c73a52;
 }
 
 #app-version {

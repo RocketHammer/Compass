@@ -1,9 +1,11 @@
 // ===== State =====
 const state = {
-  position: null,    // { lat, lng, accuracy } — latest GPS fix
-  destination: null, // { lat, lng } — where the arrow points
-  gpsWatchId: null,  // watchPosition ID for cleanup
-  gpsError: null,    // last geolocation error message, or null
+  position: null,       // { lat, lng, accuracy } — latest GPS fix
+  destination: null,    // { lat, lng } — where the arrow points
+  gpsWatchId: null,     // watchPosition ID for cleanup
+  gpsError: null,       // last geolocation error message, or null
+  castMode: false,      // true when cast-a-point UI is active
+  castDistanceIndex: 0, // index into DISTANCE_STEPS array
 };
 
 // ===== DOM References =====
@@ -20,6 +22,10 @@ function cacheDom() {
   dom.destInfo        = document.getElementById('dest-info');
   dom.currentCoords   = document.getElementById('current-coords');
   dom.permissionBtn   = document.getElementById('permission-btn');
+  dom.castPicker      = document.getElementById('cast-picker');
+  dom.castControls    = document.getElementById('cast-controls');
+  dom.castBtn         = document.getElementById('cast-btn');
+  dom.castCancelBtn   = document.getElementById('cast-cancel-btn');
 }
 
 // ===== Geolocation =====
@@ -451,6 +457,336 @@ function calculateDistance(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+
+// ---------------------------------------------------------------------------
+// Project a point along a bearing at a given distance  (the "direct" problem)
+// ---------------------------------------------------------------------------
+// This is the inverse of calculateBearing + calculateDistance.  Given a
+// starting point, a compass bearing, and a distance, it answers:
+//   "If I walk X meters in direction Y, where do I end up?"
+//
+// The math uses the spherical law of cosines to solve the navigation
+// triangle in the forward direction:
+//
+//        North Pole
+//           /\
+//          /  \
+//     co‑φ₁ /    \ co‑φ₂       φ = latitude
+//        /      \
+//       / θ      \             θ = bearing (measured at start)
+//      /___δ______\
+//    Start        End          δ = angular distance = d / R
+//
+// Given: φ₁ (start lat), λ₁ (start lng), θ (bearing), δ (angular distance)
+// Find:  φ₂ (end lat), λ₂ (end lng)
+//
+// Step 1 — Latitude of the destination:
+//   sin(φ₂) = sin(φ₁)·cos(δ) + cos(φ₁)·sin(δ)·cos(θ)
+//
+//   This comes from the spherical law of cosines applied to the side
+//   opposite the North Pole.  cos(θ) projects the travel distance onto
+//   the north–south axis; the sin/cos(φ₁) terms account for the
+//   starting latitude.
+//
+// Step 2 — Longitude offset:
+//   Δλ = atan2( sin(θ)·sin(δ)·cos(φ₁),
+//               cos(δ) − sin(φ₁)·sin(φ₂) )
+//
+//   sin(θ) projects the travel distance onto the east–west axis.
+//   The atan2 resolves the correct quadrant, and the denominator
+//   removes the latitude component so only the longitudinal shift
+//   remains.
+//
+// @param {number} lat      — starting latitude in decimal degrees
+// @param {number} lng      — starting longitude in decimal degrees
+// @param {number} bearing  — compass bearing in degrees (0 = north, 90 = east)
+// @param {number} distance — distance in meters
+// @returns {{ lat: number, lng: number }}
+// ---------------------------------------------------------------------------
+function projectPoint(lat, lng, bearing, distance) {
+  const R = 6_371_000; // Earth's mean radius in meters
+  const toRad = Math.PI / 180;
+  const toDeg = 180 / Math.PI;
+
+  const φ1 = lat * toRad;
+  const λ1 = lng * toRad;
+  const θ  = bearing * toRad;
+  const δ  = distance / R;       // angular distance in radians
+
+  // Step 1 — destination latitude
+  const sinφ2 = Math.sin(φ1) * Math.cos(δ)
+              + Math.cos(φ1) * Math.sin(δ) * Math.cos(θ);
+  const φ2 = Math.asin(sinφ2);
+
+  // Step 2 — destination longitude
+  const Δλ = Math.atan2(
+    Math.sin(θ) * Math.sin(δ) * Math.cos(φ1),
+    Math.cos(δ) - Math.sin(φ1) * sinφ2
+  );
+  const λ2 = λ1 + Δλ;
+
+  return {
+    lat: φ2 * toDeg,
+    lng: λ2 * toDeg
+  };
+}
+
+
+// ===== Cast a Point =====
+
+// ---------------------------------------------------------------------------
+// Adaptive distance steps — finer resolution close up, coarser at range.
+// The minimum of 10m accounts for typical phone GPS accuracy of ±3-5m.
+//
+//   10–100m   in 5m steps    (19 values)
+//   100–500m  in 25m steps   (16 values)
+//   500–1000m in 50m steps   (10 values)
+//   1–5km     in 250m steps  (16 values)
+//   5–20km    in 1km steps   (15 values)
+//   20–100km  in 5km steps   (16 values)
+//                        total ≈ 92 values
+// ---------------------------------------------------------------------------
+function buildDistanceSteps() {
+  const steps = [];
+  for (let d = 10;    d <= 100;    d += 5)    steps.push(d);
+  for (let d = 125;   d <= 500;    d += 25)   steps.push(d);
+  for (let d = 550;   d <= 1000;   d += 50)   steps.push(d);
+  for (let d = 1250;  d <= 5000;   d += 250)  steps.push(d);
+  for (let d = 6000;  d <= 20000;  d += 1000) steps.push(d);
+  for (let d = 25000; d <= 100000; d += 5000) steps.push(d);
+  return steps;
+}
+
+const DISTANCE_STEPS = buildDistanceSteps();
+
+
+// ---------------------------------------------------------------------------
+// Swipe gesture detection — 3 upward swipes within a time window
+// ---------------------------------------------------------------------------
+const SWIPE_MIN_DISTANCE = 50;   // px vertical delta to count as a swipe
+const SWIPE_MAX_DURATION = 500;  // ms — max time for a single swipe
+const SWIPE_WINDOW       = 2000; // ms — all 3 swipes must fit in this window
+const SWIPES_REQUIRED    = 3;
+
+let swipeStartY      = 0;
+let swipeStartTime   = 0;
+let consecutiveSwipes = 0;
+let lastSwipeTime     = 0;
+
+function onSwipeTouchStart(e) {
+  if (state.castMode) return;
+  swipeStartY    = e.touches[0].clientY;
+  swipeStartTime = Date.now();
+}
+
+function onSwipeTouchEnd(e) {
+  if (state.castMode) return;
+
+  const endY    = e.changedTouches[0].clientY;
+  const deltaY  = swipeStartY - endY;            // positive = upward
+  const elapsed = Date.now() - swipeStartTime;
+
+  if (deltaY > SWIPE_MIN_DISTANCE && elapsed < SWIPE_MAX_DURATION) {
+    const now = Date.now();
+    if (now - lastSwipeTime > SWIPE_WINDOW) {
+      consecutiveSwipes = 0;                      // reset — too much time passed
+    }
+    consecutiveSwipes++;
+    lastSwipeTime = now;
+
+    if (consecutiveSwipes >= SWIPES_REQUIRED) {
+      consecutiveSwipes = 0;
+      enterCastMode();
+    }
+  } else {
+    consecutiveSwipes = 0;
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// Cast mode management
+// ---------------------------------------------------------------------------
+function enterCastMode() {
+  if (!state.position) {
+    dom.distanceDisplay.textContent = 'GPS required to cast';
+    return;
+  }
+
+  state.castMode = true;
+  state.castDistanceIndex = findClosestStepIndex(100);  // default 100m
+
+  document.getElementById('app').classList.add('cast-active');
+  dom.castPicker.classList.remove('hidden');
+  dom.castControls.classList.remove('hidden');
+
+  renderPicker();
+
+  dom.castPicker.addEventListener('touchstart', onPickerTouchStart);
+  dom.castPicker.addEventListener('touchmove',  onPickerTouchMove);
+  dom.castPicker.addEventListener('touchend',   onPickerTouchEnd);
+}
+
+function exitCastMode() {
+  state.castMode = false;
+
+  document.getElementById('app').classList.remove('cast-active');
+  dom.castPicker.classList.add('hidden');
+  dom.castControls.classList.add('hidden');
+
+  dom.castPicker.removeEventListener('touchstart', onPickerTouchStart);
+  dom.castPicker.removeEventListener('touchmove',  onPickerTouchMove);
+  dom.castPicker.removeEventListener('touchend',   onPickerTouchEnd);
+
+  pickerAnimating = false;
+}
+
+function findClosestStepIndex(targetMeters) {
+  let closest = 0;
+  let minDiff = Math.abs(DISTANCE_STEPS[0] - targetMeters);
+  for (let i = 1; i < DISTANCE_STEPS.length; i++) {
+    const diff = Math.abs(DISTANCE_STEPS[i] - targetMeters);
+    if (diff < minDiff) { minDiff = diff; closest = i; }
+  }
+  return closest;
+}
+
+
+// ---------------------------------------------------------------------------
+// Distance picker — touch-drag with momentum
+// ---------------------------------------------------------------------------
+let pickerDragOffset  = 0;      // fractional index offset during drag
+let pickerVelocity    = 0;      // px/ms for momentum after release
+let pickerLastMoveY   = 0;
+let pickerLastMoveTime = 0;
+let pickerAnimating   = false;
+
+const PICKER_SENSITIVITY   = 0.02;  // index change per pixel dragged
+const PICKER_MOMENTUM_DECAY = 0.92;
+
+function onPickerTouchStart(e) {
+  e.preventDefault();
+  pickerAnimating   = false;
+  pickerLastMoveY   = e.touches[0].clientY;
+  pickerLastMoveTime = Date.now();
+  pickerVelocity    = 0;
+  pickerDragOffset  = 0;
+}
+
+function onPickerTouchMove(e) {
+  e.preventDefault();
+  const y  = e.touches[0].clientY;
+  const now = Date.now();
+  const deltaY = pickerLastMoveY - y;             // positive = finger up = increase
+
+  const dt = now - pickerLastMoveTime;
+  if (dt > 0) pickerVelocity = deltaY / dt;
+
+  pickerLastMoveY    = y;
+  pickerLastMoveTime = now;
+
+  pickerDragOffset += deltaY * PICKER_SENSITIVITY;
+  applyPickerOffset();
+  renderPicker();
+}
+
+function onPickerTouchEnd(e) {
+  e.preventDefault();
+  if (Math.abs(pickerVelocity) > 0.3) {
+    pickerAnimating = true;
+    animatePickerMomentum();
+  } else {
+    pickerDragOffset = 0;
+    renderPicker();
+  }
+}
+
+function applyPickerOffset() {
+  while (pickerDragOffset >= 1 && state.castDistanceIndex < DISTANCE_STEPS.length - 1) {
+    state.castDistanceIndex++;
+    pickerDragOffset -= 1;
+  }
+  while (pickerDragOffset <= -1 && state.castDistanceIndex > 0) {
+    state.castDistanceIndex--;
+    pickerDragOffset += 1;
+  }
+  // Clamp at boundaries
+  if (state.castDistanceIndex === 0 && pickerDragOffset < 0) pickerDragOffset = 0;
+  if (state.castDistanceIndex === DISTANCE_STEPS.length - 1 && pickerDragOffset > 0) pickerDragOffset = 0;
+}
+
+function animatePickerMomentum() {
+  if (!pickerAnimating || !state.castMode) return;
+
+  pickerDragOffset += pickerVelocity * 16 * PICKER_SENSITIVITY; // ~16ms frame
+  pickerVelocity   *= PICKER_MOMENTUM_DECAY;
+
+  applyPickerOffset();
+  renderPicker();
+
+  if (Math.abs(pickerVelocity) < 0.01) {
+    pickerAnimating  = false;
+    pickerDragOffset = 0;
+    renderPicker();
+    return;
+  }
+  requestAnimationFrame(animatePickerMomentum);
+}
+
+
+// ---------------------------------------------------------------------------
+// Picker rendering — 5 labels: far, near, center, near, far
+// ---------------------------------------------------------------------------
+function renderPicker() {
+  const idx    = state.castDistanceIndex;
+  const labels = dom.castPicker.children;
+
+  for (let offset = -2; offset <= 2; offset++) {
+    const stepIdx = idx + offset;
+    const label   = labels[offset + 2];
+
+    if (stepIdx >= 0 && stepIdx < DISTANCE_STEPS.length) {
+      label.textContent     = formatDistance(DISTANCE_STEPS[stepIdx]);
+      label.style.visibility = 'visible';
+    } else {
+      label.textContent     = '';
+      label.style.visibility = 'hidden';
+    }
+  }
+
+  dom.distanceDisplay.textContent = formatDistance(DISTANCE_STEPS[idx]);
+}
+
+
+// ---------------------------------------------------------------------------
+// Cast action — project a point using current heading + selected distance
+// ---------------------------------------------------------------------------
+function onCast() {
+  const heading = getDeviceHeading();
+  if (heading == null) {
+    dom.distanceDisplay.textContent = 'Point phone in a direction first';
+    return;
+  }
+  if (!state.position) {
+    dom.distanceDisplay.textContent = 'GPS required to cast';
+    return;
+  }
+
+  const distance  = DISTANCE_STEPS[state.castDistanceIndex];
+  const projected = projectPoint(
+    state.position.lat, state.position.lng,
+    heading, distance
+  );
+
+  setDestinationFromCoords(projected.lat, projected.lng, distance, heading);
+  exitCastMode();
+}
+
+function onCastCancel() {
+  exitCastMode();
+}
+
+
 // ===== Compass Rendering =====
 
 // Smoothed rotation angle — tracked across frames so we can always take
@@ -467,6 +803,25 @@ function render() {
   updateStatusDisplay();
 
   const heading = getDeviceHeading();
+
+  // --- Cast mode rendering ---
+  // In cast mode the arrow is hidden via CSS; we show the ring and the
+  // live heading so the user can aim the phone before pressing Cast.
+  if (state.castMode) {
+    dom.compassRose.classList.add('visible');
+
+    if (heading != null) {
+      dom.bearingDisplay.textContent = `${Math.round(heading)}°`;
+    } else {
+      dom.bearingDisplay.textContent = 'Aim phone\u2026';
+    }
+    // Distance display is managed by renderPicker()
+
+    requestAnimationFrame(render);
+    return;
+  }
+
+  // --- Normal navigation rendering ---
 
   // Determine target bearing:
   //   - Destination set → point at destination
@@ -888,6 +1243,24 @@ function setDestination(input) {
 }
 
 /**
+ * Sets the destination directly from coordinates (bypasses string parsing).
+ * Used by the cast feature when projecting a point.
+ */
+function setDestinationFromCoords(lat, lng, distance, bearing) {
+  if (!isValidCoordinate(lat, lng)) return false;
+
+  state.destination = { lat, lng };
+  localStorage.setItem(DEST_STORAGE_KEY, JSON.stringify(state.destination));
+
+  const info = `Cast: ${lat.toFixed(5)}, ${lng.toFixed(5)} `
+    + `(${formatDistance(distance)} at ${Math.round(bearing)}\u00B0)`;
+  dom.destInfo.textContent = info;
+  dom.destInfo.classList.remove('hidden');
+
+  return true;
+}
+
+/**
  * Restores a previously saved destination from localStorage on startup.
  */
 function loadDestination() {
@@ -931,6 +1304,15 @@ async function init() {
       if (ok) dom.permissionBtn.classList.add('hidden');
     }, { once: true });
   }
+
+  // Wire up cast-a-point gesture (3 upward swipes over compass area)
+  const container = document.getElementById('compass-container');
+  container.addEventListener('touchstart', onSwipeTouchStart);
+  container.addEventListener('touchend',   onSwipeTouchEnd);
+
+  // Wire up cast controls
+  dom.castBtn.addEventListener('click', onCast);
+  dom.castCancelBtn.addEventListener('click', onCastCancel);
 
   // Kick off the render loop
   requestAnimationFrame(render);
