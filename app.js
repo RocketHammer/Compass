@@ -485,11 +485,9 @@ function render() {
     );
   }
 
-  if (heading != null) {
-    // Arrow rotation = bearing − heading.
-    // Example: facing east (heading=90), destination is north (bearing=0)
-    //   → arrow = 0−90 = −90° → points left on screen → correct, north
-    //   is to our left when facing east.
+  // Only show and rotate the arrow when a destination is active.
+  // The arrow fades in via a CSS transition on the .visible class.
+  if (state.destination && state.position && heading != null) {
     const targetAngle = targetBearing - heading;
 
     // Shortest-path interpolation: normalize the delta to [−180, 180]
@@ -502,6 +500,9 @@ function render() {
     displayAngle += diff * 0.2;
 
     dom.compassRose.style.transform = `rotate(${displayAngle}deg)`;
+    dom.compassRose.classList.add('visible');
+  } else {
+    dom.compassRose.classList.remove('visible');
   }
 
   // Update text readouts
@@ -509,10 +510,7 @@ function render() {
     dom.bearingDisplay.textContent = `${Math.round(targetBearing)}°`;
     dom.distanceDisplay.textContent = formatDistance(distance);
   } else if (!state.destination) {
-    // No destination — show device heading as a simple compass
-    dom.bearingDisplay.textContent = heading != null
-      ? `${Math.round(heading)}°`
-      : '--';
+    dom.bearingDisplay.textContent = '--';
     dom.distanceDisplay.textContent = 'Set a destination to begin';
   } else {
     dom.bearingDisplay.textContent = '--';
