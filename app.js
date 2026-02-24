@@ -2252,40 +2252,14 @@ async function onSetDestination() {
   if (!input.trim()) return;
 
   // --- Shortened / unresolvable map URLs (Google or Apple) ---
-  const isShortUrl = isShortGoogleMapsUrl(input) || isShortAppleMapsUrl(input);
-  if (isShortUrl) {
-    if (!navigator.onLine) {
-      showDestinationError(
-        'This link needs an internet connection to resolve. Paste the full URL or connect to a network.'
-      );
-      return;
-    }
-
-    // Show resolving state
-    dom.destInput.disabled = true;
-    dom.setDestBtn.disabled = true;
-    const prevPlaceholder = dom.destInput.placeholder;
-    dom.destInput.placeholder = 'Resolving short URL\u2026';
-    dom.destInput.style.borderColor = '#ffa500';
-
-    const result = await resolveShortGoogleMapsUrl(input.trim());
-
-    // Restore input state
-    dom.destInput.disabled = false;
-    dom.setDestBtn.disabled = false;
-    dom.destInput.placeholder = prevPlaceholder;
-    dom.destInput.style.borderColor = '';
-
-    if (result.parsed) {
-      applyParsedDestination(result.parsed);
-      dom.destInput.value = '';
-      dom.destInput.blur();
-    } else {
-      showDestinationError(
-        'Short map URLs can\u2019t be resolved directly. '
-        + 'Open the link in your browser, then copy the full URL from the address bar and paste it here.'
-      );
-    }
+  const isShortGoogle = isShortGoogleMapsUrl(input);
+  const isShortApple  = isShortAppleMapsUrl(input);
+  if (isShortGoogle || isShortApple) {
+    const service = isShortApple ? 'Apple Maps' : 'Google Maps';
+    showDestinationError(
+      'This ' + service + ' link doesn\u2019t contain coordinates. '
+      + 'Open the link in your browser, copy the full URL from the address bar, and paste it here.'
+    );
     return;
   }
 
