@@ -1435,13 +1435,18 @@ function saveAchievements(data) {
 
 /**
  * Checks all achievements against the current context.
- * Called once per arrival transition.
+ * Called on arrival transitions and after importing data.
+ *
+ * @param {'arrival'} event — the trigger event type
+ * @param {object} [dataOverride] — pre-loaded achievement data (used by import
+ *        to check against freshly-merged stats without re-accumulating distance)
  */
-function checkAchievements(event) {
-  const data = loadAchievements();
+function checkAchievements(event, dataOverride) {
+  const data = dataOverride || loadAchievements();
 
-  // Accumulate distance on arrival
-  if (event === 'arrival' && state.destination && state.destination.initialDistance) {
+  // Accumulate distance on arrival (skip when checking imported data —
+  // the imported stats already contain the correct totals)
+  if (!dataOverride && event === 'arrival' && state.destination && state.destination.initialDistance) {
     data.stats.totalDistance += state.destination.initialDistance;
   }
 
@@ -1589,7 +1594,11 @@ function importAchievements(jsonStr) {
     );
 
     saveAchievements(current);
-    updateAchievementButton();
+
+    // Check if the imported stats unlock any new achievements immediately
+    // (e.g., totalDistance crossing 500 km from the merged data)
+    checkAchievements('arrival', current);
+
     showAchievementPanel(); // refresh the panel
 
     return true;
