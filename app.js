@@ -1262,7 +1262,8 @@ function updateStatusDisplay() {
  *   1. Raw coordinate pair  — "40.7128, -74.0060" or "40.7128 -74.0060"
  *   2. DMS (Degrees/Min/Sec) — 42°11'36.0"N 88°04'03.9"W
  *   3. Google Maps URL       — various google.com/maps URL patterns
- *   4. Plus Code (Open Location Code) — "87G8Q2PQ+VX"
+ *   4. Apple Maps URL        — maps.apple.com with coordinate params
+ *   5. Plus Code (Open Location Code) — "87G8Q2PQ+VX"
  *
  * @param {string} input — the raw string from the user
  * @returns {{ lat: number, lng: number, type: string } | null}
@@ -1277,6 +1278,7 @@ function parseDestinationInput(input) {
   // Google Maps URLs are checked first because they may contain raw coordinate
   // substrings — matching them early avoids a false positive on the raw parser.
   return parseGoogleMapsUrl(trimmed)
+      || parseAppleMapsUrl(trimmed)
       || parseDMS(trimmed)
       || parsePlusCode(trimmed)
       || parseRawCoordinates(trimmed);
@@ -1481,7 +1483,52 @@ function parseGoogleMapsUrl(str) {
 
 
 // ---------------------------------------------------------------------------
-// 4. Plus Code  (Open Location Code)
+// 4. Apple Maps URL
+// ---------------------------------------------------------------------------
+// Apple Maps links use the maps.apple.com domain with several query-parameter
+// patterns that can embed coordinates:
+//
+//   a) Place:      maps.apple.com/place?coordinate=LAT,LNG
+//   b) Center:     maps.apple.com/?ll=LAT,LNG
+//   c) Search:     maps.apple.com/?q=LAT,LNG
+//   d) Directions: maps.apple.com/?daddr=LAT,LNG  (or saddr for source)
+//
+// URLs that use only an `auid` parameter (Apple's unique place ID) contain no
+// coordinates and cannot be resolved offline — those are treated identically
+// to shortened Google Maps links.
+// ---------------------------------------------------------------------------
+const APPLE_MAPS_RE   = /^https?:\/\/maps\.apple\.com\b/i;
+const APPLE_COORD_RE  = /[?&](?:coordinate|ll|q|daddr|saddr)=(-?\d+\.?\d*),(-?\d+\.?\d*)/;
+const APPLE_AUID_ONLY = /[?&]auid=\d/;
+
+/**
+ * Returns true if the string is an Apple Maps URL that has no extractable
+ * coordinates (auid-only link).
+ */
+function isShortAppleMapsUrl(str) {
+  return APPLE_MAPS_RE.test(str) && APPLE_AUID_ONLY.test(str) && !APPLE_COORD_RE.test(str);
+}
+
+function parseAppleMapsUrl(str) {
+  if (!APPLE_MAPS_RE.test(str)) return null;
+
+  // auid-only links need online resolution — skip in the sync parser
+  if (isShortAppleMapsUrl(str)) return null;
+
+  const match = str.match(APPLE_COORD_RE);
+  if (!match) return null;
+
+  const lat = parseFloat(match[1]);
+  const lng = parseFloat(match[2]);
+
+  if (!isValidCoordinate(lat, lng)) return null;
+
+  return { lat, lng, type: 'apple_maps_url' };
+}
+
+
+// ---------------------------------------------------------------------------
+// 5. Plus Code  (Open Location Code)
 // ---------------------------------------------------------------------------
 // Plus Codes are a geocoding system created by Google that encodes a location
 // into a short alphanumeric string.  Example: "87G8Q2PQ+VX"
@@ -2204,11 +2251,12 @@ async function onSetDestination() {
   const input = dom.destInput.value;
   if (!input.trim()) return;
 
-  // --- Shortened Google Maps URL: async resolution ---
-  if (isShortGoogleMapsUrl(input)) {
+  // --- Shortened / unresolvable map URLs (Google or Apple) ---
+  const isShortUrl = isShortGoogleMapsUrl(input) || isShortAppleMapsUrl(input);
+  if (isShortUrl) {
     if (!navigator.onLine) {
       showDestinationError(
-        'Shortened Maps URLs need an internet connection. Paste the full URL or connect to a network.'
+        'This link needs an internet connection to resolve. Paste the full URL or connect to a network.'
       );
       return;
     }
@@ -2234,7 +2282,7 @@ async function onSetDestination() {
       dom.destInput.blur();
     } else {
       showDestinationError(
-        'Short URLs can\u2019t be resolved directly. '
+        'Short map URLs can\u2019t be resolved directly. '
         + 'Open the link in your browser, then copy the full URL from the address bar and paste it here.'
       );
     }
