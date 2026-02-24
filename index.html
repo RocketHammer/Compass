@@ -19,6 +19,12 @@
 
   <div id="app">
 
+    <!-- Desktop warning banner — hidden by default, shown via JS -->
+    <div id="desktop-warning" class="hidden">
+      This app is designed for mobile devices. Some features (compass, GPS) may not work on desktop.
+      <button id="desktop-warning-dismiss" type="button">&times;</button>
+    </div>
+
     <header id="status-bar">
       <span id="gps-status" class="status-badge">GPS: waiting</span>
       <span id="heading-status" class="status-badge">Compass: waiting</span>
@@ -106,7 +112,7 @@
           </div>
           <div class="help-section">
             <div class="help-heading">Install for Offline Use</div>
-            <div class="help-item">In Chrome, tap the three-dot menu and select &ldquo;Add to Home screen.&rdquo; The app will work fully offline once installed.</div>
+            <div class="help-item" id="install-instructions">In Chrome, tap the three-dot menu and select &ldquo;Add to Home screen.&rdquo; The app will work fully offline once installed.</div>
           </div>
           <div class="help-section">
             <div class="help-heading">Tips</div>

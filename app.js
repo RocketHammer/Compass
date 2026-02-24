@@ -213,6 +213,53 @@ function cacheDom() {
   dom.achievementToast = document.getElementById('achievement-toast');
   dom.helpBtn          = document.getElementById('help-btn');
   dom.helpPanel        = document.getElementById('help-panel');
+  dom.desktopWarning   = document.getElementById('desktop-warning');
+  dom.installInstructions = document.getElementById('install-instructions');
+}
+
+// ===== Platform Detection =====
+
+/**
+ * Detects the user's platform and browser for UX adaptation.
+ * Returns a plain object — called once during init().
+ */
+function detectPlatform() {
+  const ua = navigator.userAgent;
+  const isIOS = /iPad|iPhone|iPod/.test(ua)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isAndroid = /Android/i.test(ua);
+  const isMobile = isIOS || isAndroid || /Mobi/i.test(ua);
+  const isSafari = /Safari/i.test(ua) && !/Chrome|CriOS|Chromium/i.test(ua);
+  const isChrome = /Chrome|CriOS/i.test(ua) && !/Edge|Edg|OPR/i.test(ua);
+
+  return { isIOS, isAndroid, isMobile, isSafari, isChrome };
+}
+
+/**
+ * Applies platform-specific UI adjustments:
+ *  - Desktop: shows a dismissable warning banner
+ *  - Safari:  updates install instructions for iOS workflow
+ */
+function applyPlatformAdaptations(platform) {
+  // Desktop warning
+  if (!platform.isMobile) {
+    dom.desktopWarning.classList.remove('hidden');
+    document.getElementById('desktop-warning-dismiss')
+      .addEventListener('click', () => dom.desktopWarning.classList.add('hidden'));
+  }
+
+  // Adapt install instructions to the browser
+  if (platform.isSafari) {
+    dom.installInstructions.innerHTML =
+      'In Safari, tap the <strong>Share</strong> button (square with arrow) '
+      + 'and select &ldquo;Add to Home Screen.&rdquo; '
+      + 'The app will work fully offline once installed.';
+  } else if (!platform.isChrome && platform.isMobile) {
+    dom.installInstructions.innerHTML =
+      'For the best experience, open this page in <strong>Chrome</strong> (Android) '
+      + 'or <strong>Safari</strong> (iOS) and install it to your home screen.';
+  }
+  // Chrome (default text in HTML) needs no change
 }
 
 // ===== Geolocation =====
@@ -1877,6 +1924,10 @@ function copyCoords(which) {
 async function init() {
   cacheDom();
   loadDestination();
+
+  // Detect platform and adapt UI (desktop warning, install instructions)
+  const platform = detectPlatform();
+  applyPlatformAdaptations(platform);
 
   // Wire up destination controls
   dom.setDestBtn.addEventListener('click', onSetDestination);
