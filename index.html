@@ -122,6 +122,9 @@
             <div class="help-heading">Contact</div>
             <div class="help-item">Found a bug or achieved something noteworthy? Send a screenshot to <a href="mailto:sam.dangerlaser@gmail.com">sam.dangerlaser@gmail.com</a></div>
           </div>
+          <div class="help-section">
+            <div class="help-item"><a href="#" id="replay-tutorial">Show welcome tutorial</a></div>
+          </div>
         </div>
       </div>
     </div>
@@ -143,6 +146,25 @@
         <div class="import-area hidden">
           <input type="text" class="import-input" placeholder="Paste achievement data">
           <button class="import-btn" type="button">Load</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tutorial overlay — first-launch stepped wizard -->
+    <div id="tutorial-panel">
+      <div class="panel-backdrop"></div>
+      <div class="panel-content">
+        <div class="panel-header">
+          <span class="panel-title" id="tutorial-title"></span>
+          <button class="panel-close" type="button">&times;</button>
+        </div>
+        <div id="tutorial-body"></div>
+        <div id="tutorial-nav">
+          <div id="tutorial-dots"></div>
+          <div id="tutorial-buttons">
+            <button id="tutorial-skip" type="button">Skip</button>
+            <button id="tutorial-next" type="button">Next</button>
+          </div>
         </div>
       </div>
     </div>

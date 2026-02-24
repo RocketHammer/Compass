@@ -9,6 +9,9 @@ const state = {
   arrivedAtCurrent: false, // true once arrival fires for current destination
 };
 
+let tutorialStep = 0;
+let tutorialSteps = [];
+
 
 // ===== Achievement Registry =====
 // Each achievement has a stable `id` (never changes across versions).
@@ -215,6 +218,13 @@ function cacheDom() {
   dom.helpPanel        = document.getElementById('help-panel');
   dom.desktopWarning   = document.getElementById('desktop-warning');
   dom.installInstructions = document.getElementById('install-instructions');
+  dom.tutorialPanel    = document.getElementById('tutorial-panel');
+  dom.tutorialTitle    = document.getElementById('tutorial-title');
+  dom.tutorialBody     = document.getElementById('tutorial-body');
+  dom.tutorialDots     = document.getElementById('tutorial-dots');
+  dom.tutorialNext     = document.getElementById('tutorial-next');
+  dom.tutorialSkip     = document.getElementById('tutorial-skip');
+  dom.replayTutorial   = document.getElementById('replay-tutorial');
 }
 
 // ===== Platform Detection =====
@@ -1647,6 +1657,7 @@ function loadDestination() {
 
 // ===== Achievements =====
 
+const TUTORIAL_KEY     = 'compass_tutorial_done';
 const ACHIEVEMENTS_KEY = 'compass_achievements';
 
 /**
@@ -1899,6 +1910,96 @@ function hideHelpPanel() {
   dom.helpPanel.classList.remove('visible');
 }
 
+// ===== Tutorial =====
+
+function getTutorialSteps(platform) {
+  let installText;
+  if (platform.isSafari) {
+    installText = 'Tap <strong>Share</strong> (square with arrow) then <strong>Add to Home Screen</strong> in Safari.';
+  } else if (platform.isChrome || !platform.isMobile) {
+    installText = 'Tap the browser menu and select <strong>Add to Home Screen</strong>.';
+  } else {
+    installText = 'Open in Chrome or Safari and add to your home screen.';
+  }
+
+  return [
+    {
+      title: 'Welcome',
+      body: 'Compass Quest points you toward your destination &mdash; no turn-by-turn, no fixed route. '
+          + 'Pick a bearing, choose your own path, find adventure along the way.',
+    },
+    {
+      title: 'Set a Destination',
+      body: 'Paste coordinates, a Google Maps URL, or a Plus Code into the input at the bottom and tap <strong>Set</strong>. '
+          + 'The arrow starts pointing immediately.',
+    },
+    {
+      title: 'Share Coordinates',
+      body: 'Tap the coordinate text at the bottom of the screen to copy your location to the clipboard. '
+          + 'Easy to share with friends.',
+    },
+    {
+      title: 'Cast a Point',
+      body: 'No destination in mind? Swipe up 3&times; over the compass to enter cast mode. '
+          + 'Aim your phone, pick a distance, tap <strong>Cast</strong>. Great for wandering somewhere new.',
+    },
+    {
+      title: 'Install & Help',
+      body: installText + ' The app works fully offline once installed. '
+          + 'Tap the <strong>?</strong> in the top bar for help anytime.',
+    },
+  ];
+}
+
+function shouldShowTutorial() {
+  try { return !localStorage.getItem(TUTORIAL_KEY); }
+  catch { return false; }
+}
+
+function markTutorialDone() {
+  try { localStorage.setItem(TUTORIAL_KEY, '1'); } catch (_) {}
+}
+
+function showTutorial(platform) {
+  tutorialSteps = getTutorialSteps(platform);
+  tutorialStep = 0;
+  renderTutorialStep();
+  dom.tutorialPanel.classList.add('visible');
+}
+
+function hideTutorial() {
+  dom.tutorialPanel.classList.remove('visible');
+  markTutorialDone();
+}
+
+function renderTutorialStep() {
+  const step = tutorialSteps[tutorialStep];
+  dom.tutorialTitle.textContent = step.title;
+  dom.tutorialBody.innerHTML = step.body;
+
+  // Rebuild dot indicators
+  dom.tutorialDots.innerHTML = '';
+  for (let i = 0; i < tutorialSteps.length; i++) {
+    const dot = document.createElement('span');
+    dot.className = 'tutorial-dot' + (i === tutorialStep ? ' active' : '');
+    dom.tutorialDots.appendChild(dot);
+  }
+
+  // Last step: "Start" button, no Skip
+  const isLast = tutorialStep === tutorialSteps.length - 1;
+  dom.tutorialNext.textContent = isLast ? 'Start' : 'Next';
+  dom.tutorialSkip.style.display = isLast ? 'none' : '';
+}
+
+function onTutorialNext() {
+  if (tutorialStep < tutorialSteps.length - 1) {
+    tutorialStep++;
+    renderTutorialStep();
+  } else {
+    hideTutorial();
+  }
+}
+
 // ===== Clipboard =====
 
 /**
@@ -1988,6 +2089,24 @@ async function init() {
     }
   });
   updateAchievementButton();
+
+  // Wire up tutorial panel
+  dom.tutorialNext.addEventListener('click', onTutorialNext);
+  dom.tutorialSkip.addEventListener('click', hideTutorial);
+  dom.tutorialPanel.querySelector('.panel-close').addEventListener('click', hideTutorial);
+  dom.tutorialPanel.querySelector('.panel-backdrop').addEventListener('click', hideTutorial);
+
+  // "Show welcome tutorial" link in help panel
+  dom.replayTutorial.addEventListener('click', (e) => {
+    e.preventDefault();
+    hideHelpPanel();
+    showTutorial(platform);
+  });
+
+  // Show tutorial on first launch
+  if (shouldShowTutorial()) {
+    showTutorial(platform);
+  }
 
   // Kick off the render loop
   requestAnimationFrame(render);

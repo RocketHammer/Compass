@@ -602,6 +602,95 @@ html, body {
   flex-shrink: 0;
 }
 
+/* ===== Tutorial Panel ===== */
+#tutorial-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease-in;
+}
+
+#tutorial-panel.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#tutorial-body {
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.75);
+  min-height: 60px;
+  margin-bottom: 16px;
+}
+
+#tutorial-body strong {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+#tutorial-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+#tutorial-dots {
+  display: flex;
+  gap: 6px;
+}
+
+.tutorial-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  transition: background 0.2s;
+}
+
+.tutorial-dot.active {
+  background: #e94560;
+}
+
+#tutorial-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+#tutorial-skip {
+  padding: 8px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+#tutorial-skip:active {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+#tutorial-next {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  background: #e94560;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+#tutorial-next:active {
+  background: #c73a52;
+}
+
 /* ===== Utility ===== */
 .hidden {
   display: none !important;
