@@ -1,4 +1,4 @@
-# Quest Compass — Project Summary
+# Compass Quest — Project Summary
 
 A Progressive Web App compass for Android that reads device GPS and orientation sensors to point an arrow at a fixed destination. Works fully offline via service worker caching. Deployed on GitHub Pages.
 

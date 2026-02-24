@@ -1,4 +1,4 @@
-# Quest Compass
+# Compass Quest
 
 A Progressive Web App that turns your phone into a compass pointing at any destination. Enter coordinates, paste a Google Maps link, or cast a waypoint by aiming your phone — the arrow guides you there.
 
