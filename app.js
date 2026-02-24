@@ -1316,19 +1316,66 @@ function parseDMS(str) {
 //   - [?&]q=(-?\d+\.\d+),(-?\d+\.\d+) — catches query param (a)
 //   - /dir/.../ fallback             — catches directions endpoint (d)
 //
-// Note: Shortened URLs (maps.app.goo.gl/…) cannot be resolved offline.
-//       The function returns null for those — the caller should inform the
-//       user to paste the full URL instead.
+// Shortened URLs (maps.app.goo.gl/… , goo.gl/maps/…) are handled separately
+// by resolveShortGoogleMapsUrl() which attempts to follow the redirect when
+// the device is online.  parseGoogleMapsUrl() still returns null for them so
+// that the sync parsing path does not silently swallow them.
 // ---------------------------------------------------------------------------
-const GMAPS_DOMAIN_RE = /^https?:\/\/(www\.)?(google\.[a-z.]+\/maps|maps\.google\.[a-z.]+|maps\.app\.goo\.gl)/i;
+const GMAPS_DOMAIN_RE = /^https?:\/\/(www\.)?(google\.[a-z.]+\/maps|maps\.google\.[a-z.]+|maps\.app\.goo\.gl|goo\.gl\/maps)/i;
+const GMAPS_SHORT_RE  = /^https?:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps)\//i;
 const GMAPS_AT_RE     = /@(-?\d+\.?\d*),(-?\d+\.?\d*)/;
 const GMAPS_QUERY_RE  = /[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/;
+
+/** Returns true if the string is a shortened Google Maps URL. */
+function isShortGoogleMapsUrl(str) {
+  return GMAPS_SHORT_RE.test(str.trim());
+}
+
+/**
+ * Attempts to resolve a shortened Google Maps URL by following the redirect.
+ * Requires an internet connection — returns null on failure.
+ */
+async function resolveShortGoogleMapsUrl(shortUrl) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const resp = await fetch(shortUrl, {
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    // The browser follows redirects; response.url is the final destination
+    const finalUrl = resp.url;
+    if (finalUrl && finalUrl !== shortUrl) {
+      const parsed = parseGoogleMapsUrl(finalUrl);
+      if (parsed) return parsed;
+    }
+
+    // Fallback: scan the response body for coordinate patterns
+    const text = await resp.text();
+    const match = text.match(GMAPS_AT_RE) || text.match(GMAPS_QUERY_RE);
+    if (match) {
+      const lat = parseFloat(match[1]);
+      const lng = parseFloat(match[2]);
+      if (isValidCoordinate(lat, lng)) {
+        return { lat, lng, type: 'google_maps_url' };
+      }
+    }
+
+    return null;
+  } catch {
+    clearTimeout(timeout);
+    return null;
+  }
+}
 
 function parseGoogleMapsUrl(str) {
   if (!GMAPS_DOMAIN_RE.test(str)) return null;
 
-  // Warn-worthy: shortened links can't be followed offline
-  if (/maps\.app\.goo\.gl/i.test(str)) return null;
+  // Shortened links are resolved asynchronously by the caller — skip here
+  if (GMAPS_SHORT_RE.test(str)) return null;
 
   // Try the @ notation first (more common in copy-pasted URLs)
   let match = str.match(GMAPS_AT_RE);
@@ -1896,20 +1943,99 @@ async function init() {
 }
 
 /**
+ * Shows a brief error state on the destination input.
+ * If a message is provided, it is displayed in the dest-info element.
+ */
+function showDestinationError(message) {
+  dom.destInput.style.borderColor = '#e94560';
+  setTimeout(() => { dom.destInput.style.borderColor = ''; }, 2500);
+  if (message) {
+    dom.destInfo.textContent = message;
+    dom.destInfo.classList.remove('hidden');
+    dom.destInfo.style.color = '#e94560';
+    setTimeout(() => {
+      dom.destInfo.style.color = '';
+      if (dom.destInfo.textContent === message) dom.destInfo.classList.add('hidden');
+    }, 5000);
+  }
+}
+
+/**
+ * Applies a resolved coordinate object as the destination.
+ * @param {{ lat: number, lng: number, type: string }} parsed
+ */
+function applyParsedDestination(parsed) {
+  let initialDistance = 0;
+  if (state.position) {
+    initialDistance = calculateDistance(
+      state.position.lat, state.position.lng,
+      parsed.lat, parsed.lng
+    );
+  }
+
+  state.destination = {
+    lat: parsed.lat, lng: parsed.lng,
+    source: 'input', initialDistance,
+  };
+  state.arrivedAtCurrent = false;
+  localStorage.setItem(DEST_STORAGE_KEY, JSON.stringify(state.destination));
+
+  dom.destInfo.textContent =
+    `Destination: ${parsed.lat.toFixed(5)}, ${parsed.lng.toFixed(5)} (${parsed.type})`;
+  dom.destInfo.style.color = '';
+  dom.destInfo.classList.remove('hidden');
+}
+
+/**
  * Handler for the "Set" button and Enter key in the destination input.
  */
-function onSetDestination() {
+async function onSetDestination() {
   const input = dom.destInput.value;
   if (!input.trim()) return;
 
+  // --- Shortened Google Maps URL: async resolution ---
+  if (isShortGoogleMapsUrl(input)) {
+    if (!navigator.onLine) {
+      showDestinationError(
+        'Shortened Maps URLs need an internet connection. Paste the full URL or connect to a network.'
+      );
+      return;
+    }
+
+    // Show resolving state
+    dom.destInput.disabled = true;
+    dom.setDestBtn.disabled = true;
+    const prevPlaceholder = dom.destInput.placeholder;
+    dom.destInput.placeholder = 'Resolving short URL\u2026';
+    dom.destInput.style.borderColor = '#ffa500';
+
+    const parsed = await resolveShortGoogleMapsUrl(input.trim());
+
+    // Restore input state
+    dom.destInput.disabled = false;
+    dom.setDestBtn.disabled = false;
+    dom.destInput.placeholder = prevPlaceholder;
+    dom.destInput.style.borderColor = '';
+
+    if (parsed) {
+      applyParsedDestination(parsed);
+      dom.destInput.value = '';
+      dom.destInput.blur();
+    } else {
+      showDestinationError(
+        'Could not resolve shortened URL. Paste the full Google Maps URL instead.'
+      );
+    }
+    return;
+  }
+
+  // --- Normal synchronous path ---
   const ok = setDestination(input);
   if (ok) {
     dom.destInput.value = '';
     dom.destInput.blur();
   } else {
-    // Brief red border flash to signal invalid input
-    dom.destInput.style.borderColor = '#e94560';
-    setTimeout(() => { dom.destInput.style.borderColor = ''; }, 1500);
+    showDestinationError();
   }
 }
 
