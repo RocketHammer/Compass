@@ -272,6 +272,23 @@ function applyPlatformAdaptations(platform) {
   // Chrome (default text in HTML) needs no change
 }
 
+// ===== Virtual Keyboard Viewport Fix =====
+// On mobile, the virtual keyboard shrinks the visible area but html/body
+// height: 100% doesn't update.  The Visual Viewport API gives us the real
+// visible height so the flex layout can reflow and keep the input visible.
+
+function initViewportResize() {
+  if (!window.visualViewport) return;
+
+  const root = document.documentElement;
+  const update = () => {
+    root.style.setProperty('--app-height', `${window.visualViewport.height}px`);
+  };
+
+  window.visualViewport.addEventListener('resize', update);
+  window.visualViewport.addEventListener('scroll', update);
+}
+
 // ===== Geolocation =====
 
 function startGps() {
@@ -2029,6 +2046,7 @@ async function init() {
   // Detect platform and adapt UI (desktop warning, install instructions)
   const platform = detectPlatform();
   applyPlatformAdaptations(platform);
+  initViewportResize();
 
   // Wire up destination controls
   dom.setDestBtn.addEventListener('click', onSetDestination);
