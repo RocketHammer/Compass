@@ -1706,29 +1706,57 @@ function hideAchievementPanel() {
 }
 
 /**
- * Exports achievement data to clipboard as JSON.
+ * Simple checksum for tamper detection.  Not cryptographic — just enough
+ * to prevent casual editing of exported achievement strings.
+ */
+function achievementChecksum(str) {
+  let h = 0x811c9dc5;                       // FNV-1a offset basis
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);           // FNV-1a prime
+  }
+  return (h >>> 0).toString(36);             // unsigned, base-36
+}
+
+/**
+ * Exports achievement data to clipboard as an encoded string.
  */
 function exportAchievements() {
   const data = loadAchievements();
   const json = JSON.stringify(data);
+  const check = achievementChecksum(json);
+  const encoded = btoa(check + '.' + json);
   const btn = dom.achievementPanel.querySelector('.export-btn');
   const original = btn.textContent;
 
-  navigator.clipboard.writeText(json).then(() => {
+  navigator.clipboard.writeText(encoded).then(() => {
     btn.textContent = 'Copied!';
     setTimeout(() => { btn.textContent = original; }, 1200);
   });
 }
 
 /**
- * Imports achievement data from a JSON string, merging with existing progress.
+ * Decodes and validates an achievement export string.
+ * Returns the parsed object or throws on invalid/tampered data.
  */
-function importAchievements(jsonStr) {
+function decodeAchievementString(str) {
+  const decoded = atob(str);
+  const dotIdx = decoded.indexOf('.');
+  if (dotIdx === -1) throw new Error('Invalid format');
+  const check = decoded.slice(0, dotIdx);
+  const json = decoded.slice(dotIdx + 1);
+  if (achievementChecksum(json) !== check) throw new Error('Checksum mismatch');
+  const obj = JSON.parse(json);
+  if (!obj.unlocked || !obj.stats) throw new Error('Invalid data');
+  return obj;
+}
+
+/**
+ * Imports achievement data from an encoded string, merging with existing progress.
+ */
+function importAchievements(encodedStr) {
   try {
-    const imported = JSON.parse(jsonStr);
-    if (!imported.unlocked || !imported.stats) {
-      throw new Error('Invalid format');
-    }
+    const imported = decodeAchievementString(encodedStr);
 
     const current = loadAchievements();
 
