@@ -276,13 +276,19 @@ function applyPlatformAdaptations(platform) {
 // On mobile, the virtual keyboard shrinks the visible area but html/body
 // height: 100% doesn't update.  The Visual Viewport API gives us the real
 // visible height so the flex layout can reflow and keep the input visible.
+//
+// We use offsetTop + height because some browsers (iOS Safari) scroll the
+// layout viewport when the keyboard opens, shifting the visual viewport
+// downward.  Without offsetTop the bottom of #app would sit above the
+// actual visible bottom and the input would be partially covered.
 
 function initViewportResize() {
   if (!window.visualViewport) return;
 
   const root = document.documentElement;
   const update = () => {
-    root.style.setProperty('--app-height', `${window.visualViewport.height}px`);
+    const vv = window.visualViewport;
+    root.style.setProperty('--app-height', `${vv.offsetTop + vv.height}px`);
   };
 
   window.visualViewport.addEventListener('resize', update);
@@ -1407,7 +1413,11 @@ function isShortGoogleMapsUrl(str) {
 
 /**
  * Attempts to resolve a shortened Google Maps URL by following the redirect.
- * Requires an internet connection — returns null on failure.
+ * Requires an internet connection.
+ *
+ * Returns { parsed } on success, or { error: string } explaining the failure.
+ * The fetch will be blocked by CORS on most browsers — that's expected.
+ * When it fails we return an error string so the caller can guide the user.
  */
 async function resolveShortGoogleMapsUrl(shortUrl) {
   const controller = new AbortController();
@@ -1420,11 +1430,11 @@ async function resolveShortGoogleMapsUrl(shortUrl) {
     });
     clearTimeout(timeout);
 
-    // The browser follows redirects; response.url is the final destination
+    // The browser followed redirects; response.url is the final destination
     const finalUrl = resp.url;
     if (finalUrl && finalUrl !== shortUrl) {
       const parsed = parseGoogleMapsUrl(finalUrl);
-      if (parsed) return parsed;
+      if (parsed) return { parsed };
     }
 
     // Fallback: scan the response body for coordinate patterns
@@ -1434,14 +1444,16 @@ async function resolveShortGoogleMapsUrl(shortUrl) {
       const lat = parseFloat(match[1]);
       const lng = parseFloat(match[2]);
       if (isValidCoordinate(lat, lng)) {
-        return { lat, lng, type: 'google_maps_url' };
+        return { parsed: { lat, lng, type: 'google_maps_url' } };
       }
     }
 
-    return null;
-  } catch {
+    return { error: 'no-coords' };
+  } catch (e) {
     clearTimeout(timeout);
-    return null;
+    // CORS or network failure — the most common case
+    const isCors = e instanceof TypeError;
+    return { error: isCors ? 'cors' : 'network' };
   }
 }
 
@@ -1952,18 +1964,21 @@ function getTutorialSteps(platform) {
     },
     {
       title: 'Share Coordinates',
-      body: 'Tap the coordinate text at the bottom of the screen to copy your location to the clipboard. '
-          + 'Easy to share with friends.',
+      body: 'Tap the coordinate text at the bottom of the screen to copy your location or destination to the clipboard. '
+          + 'Easy to share with comrades.',
     },
     {
       title: 'Cast a Point',
-      body: 'No destination in mind? Swipe up 3&times; over the compass to enter cast mode. '
-          + 'Aim your phone, pick a distance, tap <strong>Cast</strong>. Great for wandering somewhere new.',
+      body: 'No specific destination in mind? Swipe up 3&times to enter cast mode. '
+          + 'Aim your phone, pick a distance, tap <strong>Cast</strong>. Great for wandering somewhere new or "to that thing on the horizon".',
     },
     {
-      title: 'Install & Help',
-      body: installText + ' The app works fully offline once installed. '
-          + 'Tap the <strong>?</strong> in the top bar for help anytime.',
+      title: 'Install Locally',
+      body: installText + ' The app works fully offline once installed. ',
+    },
+    {
+      title: 'Help',
+      body: 'Tap the <strong>?</strong> in the upper right corner for help anytime.',
     },
   ];
 }
@@ -2052,6 +2067,14 @@ async function init() {
   dom.setDestBtn.addEventListener('click', onSetDestination);
   dom.destInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') onSetDestination();
+  });
+
+  // After the keyboard finishes opening, nudge the input into view in case
+  // the viewport resize alone didn't fully clear it.
+  dom.destInput.addEventListener('focus', () => {
+    setTimeout(() => {
+      dom.destInput.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }, 350);
   });
 
   // Start GPS — the browser will prompt for permission automatically
@@ -2197,7 +2220,7 @@ async function onSetDestination() {
     dom.destInput.placeholder = 'Resolving short URL\u2026';
     dom.destInput.style.borderColor = '#ffa500';
 
-    const parsed = await resolveShortGoogleMapsUrl(input.trim());
+    const result = await resolveShortGoogleMapsUrl(input.trim());
 
     // Restore input state
     dom.destInput.disabled = false;
@@ -2205,13 +2228,14 @@ async function onSetDestination() {
     dom.destInput.placeholder = prevPlaceholder;
     dom.destInput.style.borderColor = '';
 
-    if (parsed) {
-      applyParsedDestination(parsed);
+    if (result.parsed) {
+      applyParsedDestination(result.parsed);
       dom.destInput.value = '';
       dom.destInput.blur();
     } else {
       showDestinationError(
-        'Could not resolve shortened URL. Paste the full Google Maps URL instead.'
+        'Short URLs can\u2019t be resolved directly. '
+        + 'Open the link in your browser, then copy the full URL from the address bar and paste it here.'
       );
     }
     return;
