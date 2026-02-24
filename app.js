@@ -17,12 +17,33 @@ const state = {
 // To add a new achievement, just append an object to this array.
 
 const ACHIEVEMENTS = [
+  // --- Getting Started ---
   {
     id: 'first_step',
     name: 'First Step',
     description: 'Arrive at your first destination',
     check: (ctx) => ctx.event === 'arrival',
   },
+  {
+    id: 'pathfinder',
+    name: 'Pathfinder',
+    description: 'Arrive at 5 destinations',
+    check: (ctx) => ctx.event === 'arrival' && ctx.totalArrivals >= 5,
+  },
+  {
+    id: 'trailblazer',
+    name: 'Trailblazer',
+    description: 'Arrive at 25 destinations',
+    check: (ctx) => ctx.event === 'arrival' && ctx.totalArrivals >= 25,
+  },
+  {
+    id: 'target_audience',
+    name: '<your name here>, the Target Audience',
+    description: 'Arrive at 50 destinations',
+    check: (ctx) => ctx.event === 'arrival' && ctx.totalArrivals >= 50,
+  },
+
+  // --- Input Destinations ---
   {
     id: 'novice_navigator',
     name: 'Novice Navigator',
@@ -32,19 +53,140 @@ const ACHIEVEMENTS = [
                  && ctx.initialDistance >= 2000,
   },
   {
-    id: 'master_wanderer',
-    name: 'Master Wanderer',
+    id: 'long_walk',
+    name: 'The Long Walk',
+    description: 'Arrive at a coordinate destination from 10 km away',
+    check: (ctx) => ctx.event === 'arrival'
+                 && ctx.source === 'input'
+                 && ctx.initialDistance >= 10000,
+  },
+  {
+    id: 'getting_somewhere',
+    name: 'Getting Somewhere',
+    description: 'Arrive at a coordinate destination from 50 km away',
+    check: (ctx) => ctx.event === 'arrival'
+                 && ctx.source === 'input'
+                 && ctx.initialDistance >= 50000,
+  },
+  {
+    id: 'expedition',
+    name: 'Expedition to the Great Somewhere',
+    description: 'Arrive at a coordinate destination from 100 km away',
+    check: (ctx) => ctx.event === 'arrival'
+                 && ctx.source === 'input'
+                 && ctx.initialDistance >= 100000,
+  },
+  {
+    id: 'ultra_elite_navigator',
+    name: '<your name here>, the Ultra Elite Navigator',
+    description: 'Arrive at a coordinate destination from 2,000 km away',
+    check: (ctx) => ctx.event === 'arrival'
+                 && ctx.source === 'input'
+                 && ctx.initialDistance >= 2000000,
+  },
+
+  // --- Cast Destinations ---
+  {
+    id: 'first_cast',
+    name: 'Leap of Faith',
+    description: 'Arrive at your first cast destination',
+    check: (ctx) => ctx.event === 'arrival' && ctx.source === 'cast',
+  },
+  {
+    id: 'carefree_wanderer',
+    name: 'Carefree Wanderer',
+    description: 'Arrive at 10 cast destinations',
+    check: (ctx) => ctx.event === 'arrival' && ctx.castArrivals >= 10,
+  },
+  {
+    id: 'no_destination',
+    name: 'No Destination Required',
+    description: 'Arrive at a cast destination from 1 km away',
+    check: (ctx) => ctx.event === 'arrival'
+                 && ctx.source === 'cast'
+                 && ctx.initialDistance >= 1000,
+  },
+  {
+    id: 'where_am_i',
+    name: 'Where Am I?',
+    description: 'Arrive at a cast destination from 10 km away',
+    check: (ctx) => ctx.event === 'arrival'
+                 && ctx.source === 'cast'
+                 && ctx.initialDistance >= 10000,
+  },
+  {
+    id: 'leaf_in_the_wind',
+    name: 'Like a Leaf in the Wind',
+    description: 'Arrive at a cast destination at least 50 km away',
+    check: (ctx) => ctx.event === 'arrival'
+                 && ctx.source === 'cast'
+                 && ctx.initialDistance >= 50000,
+  },
+  {
+    id: 'vagabond',
+    name: '<your name here>, Vagabond of Myth and Legend',
     description: 'Arrive at a cast destination 100 km away',
     check: (ctx) => ctx.event === 'arrival'
                  && ctx.source === 'cast'
                  && ctx.initialDistance >= 100000,
   },
+
+  // --- Cumulative Distance ---
+  {
+    id: 'ten_down',
+    name: 'Ten Down',
+    description: 'Travel a cumulative 10 km',
+    check: (ctx) => ctx.event === 'arrival' && ctx.totalDistance >= 10000,
+  },
+  {
+    id: 'century_club',
+    name: 'Century Club',
+    description: 'Travel a cumulative 100 km',
+    check: (ctx) => ctx.event === 'arrival' && ctx.totalDistance >= 100000,
+  },
+  {
+    id: 'travelers_guild',
+    name: "Traveler's Guild",
+    description: 'Travel a cumulative 500 km',
+    check: (ctx) => ctx.event === 'arrival' && ctx.totalDistance >= 500000,
+  },
   {
     id: 'eternal_traveler',
-    name: 'Eternal Traveler',
-    description: 'Travel a cumulative 500 km across all destinations',
+    name: '<your name here>, Eternal Traveler',
+    description: 'Travel a cumulative 4,000 km',
+    check: (ctx) => ctx.event === 'arrival' && ctx.totalDistance >= 4000000,
+  },
+
+  // --- Short Range / Precision ---
+  {
+    id: 'how_far',
+    name: 'How far away is that?',
+    description: 'Arrive at a coordinate destination precisely 501 m away',
     check: (ctx) => ctx.event === 'arrival'
-                 && ctx.totalDistance >= 500000,
+                 && ctx.source === 'input'
+                 && Math.round(ctx.initialDistance) === 501,
+  },
+  {
+    id: 'calibration_distance',
+    name: 'Calibration Distance',
+    description: 'Arrive at a coordinate destination precisely 1 km away',
+    check: (ctx) => ctx.event === 'arrival'
+                 && ctx.source === 'input'
+                 && Math.round(ctx.initialDistance) === 1000,
+  },
+
+  // --- Special ---
+  {
+    id: 'half_marathon',
+    name: 'Half Marathon',
+    description: 'Arrive at a destination at least 21.0975 km away',
+    check: (ctx) => ctx.event === 'arrival' && ctx.initialDistance >= 21097,
+  },
+  {
+    id: 'marathon',
+    name: 'Marathon',
+    description: 'Arrive at a destination at least 42.195 km away',
+    check: (ctx) => ctx.event === 'arrival' && ctx.initialDistance >= 42195,
   },
 ];
 
@@ -1424,11 +1566,11 @@ function loadAchievements() {
       const data = JSON.parse(saved);
       return {
         unlocked: data.unlocked || {},
-        stats: { totalDistance: 0, ...data.stats },
+        stats: { totalDistance: 0, totalArrivals: 0, castArrivals: 0, ...data.stats },
       };
     }
   } catch { /* corrupt data — start fresh */ }
-  return { unlocked: {}, stats: { totalDistance: 0 } };
+  return { unlocked: {}, stats: { totalDistance: 0, totalArrivals: 0, castArrivals: 0 } };
 }
 
 function saveAchievements(data) {
@@ -1446,17 +1588,25 @@ function saveAchievements(data) {
 function checkAchievements(event, dataOverride) {
   const data = dataOverride || loadAchievements();
 
-  // Accumulate distance on arrival (skip when checking imported data —
+  const source = state.destination ? state.destination.source : null;
+
+  // Accumulate stats on arrival (skip when checking imported data —
   // the imported stats already contain the correct totals)
-  if (!dataOverride && event === 'arrival' && state.destination && state.destination.initialDistance) {
-    data.stats.totalDistance += state.destination.initialDistance;
+  if (!dataOverride && event === 'arrival') {
+    data.stats.totalArrivals++;
+    if (source === 'cast') data.stats.castArrivals++;
+    if (state.destination && state.destination.initialDistance) {
+      data.stats.totalDistance += state.destination.initialDistance;
+    }
   }
 
   const ctx = {
     event,
-    source: state.destination ? state.destination.source : null,
+    source,
     initialDistance: state.destination ? state.destination.initialDistance : 0,
     totalDistance: data.stats.totalDistance,
+    totalArrivals: data.stats.totalArrivals,
+    castArrivals: data.stats.castArrivals,
   };
 
   const newlyUnlocked = [];
@@ -1541,9 +1691,9 @@ function showAchievementPanel() {
     list.appendChild(item);
   }
 
-  // Show total distance stat
+  // Show stats
   const statsEl = dom.achievementPanel.querySelector('.achievement-stats');
-  statsEl.textContent = `Total distance: ${formatDistance(data.stats.totalDistance)}`;
+  statsEl.textContent = `${data.stats.totalArrivals} arrivals \u00B7 ${formatDistance(data.stats.totalDistance)} traveled`;
 
   dom.achievementPanel.classList.add('visible');
 }
@@ -1589,10 +1739,18 @@ function importAchievements(jsonStr) {
       }
     }
 
-    // Merge stats: take the higher value
+    // Merge stats: take the higher value for each
     current.stats.totalDistance = Math.max(
       current.stats.totalDistance,
       imported.stats.totalDistance || 0
+    );
+    current.stats.totalArrivals = Math.max(
+      current.stats.totalArrivals,
+      imported.stats.totalArrivals || 0
+    );
+    current.stats.castArrivals = Math.max(
+      current.stats.castArrivals,
+      imported.stats.castArrivals || 0
     );
 
     saveAchievements(current);
