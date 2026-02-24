@@ -1157,6 +1157,7 @@ function render() {
   // Fire achievement check on the transition into arrived state (once per destination)
   if (arrived && !state.arrivedAtCurrent) {
     state.arrivedAtCurrent = true;
+    persistArrivedFlag();
     checkAchievements('arrival');
   }
 
@@ -1723,12 +1724,24 @@ function loadDestination() {
         source: data.source || 'input',
         initialDistance: data.initialDistance || 0,
       };
+      state.arrivedAtCurrent = !!data.arrivedAtCurrent;
       dom.destInfo.textContent = `Destination: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
       dom.destInfo.classList.remove('hidden');
     }
   } catch {
     // Corrupt data in storage — silently ignore
   }
+}
+
+/** Persists the arrivedAtCurrent flag into the stored destination so it survives reloads. */
+function persistArrivedFlag() {
+  try {
+    const saved = localStorage.getItem(DEST_STORAGE_KEY);
+    if (!saved) return;
+    const data = JSON.parse(saved);
+    data.arrivedAtCurrent = state.arrivedAtCurrent;
+    localStorage.setItem(DEST_STORAGE_KEY, JSON.stringify(data));
+  } catch { /* ignore */ }
 }
 
 // ===== Achievements =====
