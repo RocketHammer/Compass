@@ -1,4 +1,4 @@
-const CACHE_NAME = 'compass-v15';
+const CACHE_NAME = 'compass-v16';
 const ASSETS = [
   './',
   './index.html',
@@ -8,14 +8,17 @@ const ASSETS = [
 ];
 
 // Pre-cache the app shell on install so the app works fully offline.
+// skipWaiting() activates the new SW immediately instead of waiting for
+// all tabs using the old SW to close.
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS))
   );
+  self.skipWaiting();
 });
 
-// On activation, delete any caches from older versions so stale assets
-// don't linger after an update.
+// On activation, delete old caches and immediately take control of all
+// open tabs so they serve fresh assets on the next fetch.
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then(keys =>
@@ -23,7 +26,7 @@ self.addEventListener('activate', (event) => {
         keys.filter(key => key !== CACHE_NAME)
             .map(key => caches.delete(key))
       )
-    )
+    ).then(() => self.clients.claim())
   );
 });
 
