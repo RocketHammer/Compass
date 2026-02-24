@@ -69,6 +69,8 @@ function cacheDom() {
   dom.achievementBtn  = document.getElementById('achievement-btn');
   dom.achievementPanel = document.getElementById('achievement-panel');
   dom.achievementToast = document.getElementById('achievement-toast');
+  dom.helpBtn          = document.getElementById('help-btn');
+  dom.helpPanel        = document.getElementById('help-panel');
 }
 
 // ===== Geolocation =====
@@ -1607,6 +1609,16 @@ function importAchievements(jsonStr) {
   }
 }
 
+// ===== Help Panel =====
+
+function showHelpPanel() {
+  dom.helpPanel.classList.add('visible');
+}
+
+function hideHelpPanel() {
+  dom.helpPanel.classList.remove('visible');
+}
+
 // ===== Clipboard =====
 
 /**
@@ -1666,6 +1678,11 @@ async function init() {
   // Wire up cast controls
   dom.castBtn.addEventListener('click', onCast);
   dom.castCancelBtn.addEventListener('click', onCastCancel);
+
+  // Wire up help panel
+  dom.helpBtn.addEventListener('click', showHelpPanel);
+  dom.helpPanel.querySelector('.panel-close').addEventListener('click', hideHelpPanel);
+  dom.helpPanel.querySelector('.panel-backdrop').addEventListener('click', hideHelpPanel);
 
   // Wire up achievement panel
   dom.achievementBtn.addEventListener('click', showAchievementPanel);

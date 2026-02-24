@@ -22,6 +22,7 @@
     <header id="status-bar">
       <span id="gps-status" class="status-badge">GPS: waiting</span>
       <span id="heading-status" class="status-badge">Compass: waiting</span>
+      <span id="help-btn" class="status-badge">?</span>
       <span id="achievement-btn" class="status-badge hidden"></span>
     </header>
 
@@ -80,8 +81,36 @@
       <button id="permission-btn" class="hidden" type="button">
         Tap to enable compass
       </button>
-      <div id="app-version">v0.9</div>
+      <div id="app-version">v1.0</div>
     </footer>
+
+    <!-- Help panel overlay -->
+    <div id="help-panel">
+      <div class="panel-backdrop"></div>
+      <div class="panel-content">
+        <div class="panel-header">
+          <span class="panel-title">Help</span>
+          <button class="panel-close" type="button">&times;</button>
+        </div>
+        <div class="help-body">
+          <div class="help-section">
+            <div class="help-heading">Destination Formats</div>
+            <div class="help-item"><strong>Coordinates</strong> &mdash; 40.7128, -74.0060</div>
+            <div class="help-item"><strong>DMS</strong> &mdash; 42&deg;11'36.0"N 88&deg;04'03.9"W</div>
+            <div class="help-item"><strong>Google Maps URL</strong> &mdash; paste any maps link</div>
+            <div class="help-item"><strong>Plus Code</strong> &mdash; 87G8Q2PQ+VX</div>
+          </div>
+          <div class="help-section">
+            <div class="help-heading">Cast a Point</div>
+            <div class="help-item">Swipe up 3 times over the compass to enter cast mode. Aim your phone in a direction, drag to pick a distance, then tap Cast to set a waypoint.</div>
+          </div>
+          <div class="help-section">
+            <div class="help-heading">Tips</div>
+            <div class="help-item">Tap coordinates at the bottom to copy them to your clipboard.</div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- Achievement panel overlay -->
     <div id="achievement-panel">
