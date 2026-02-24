@@ -1,12 +1,52 @@
 // ===== State =====
 const state = {
   position: null,       // { lat, lng, accuracy } — latest GPS fix
-  destination: null,    // { lat, lng } — where the arrow points
+  destination: null,    // { lat, lng, source, initialDistance } — where the arrow points
   gpsWatchId: null,     // watchPosition ID for cleanup
   gpsError: null,       // last geolocation error message, or null
   castMode: false,      // true when cast-a-point UI is active
   castDistanceIndex: 0, // index into DISTANCE_STEPS array
+  arrivedAtCurrent: false, // true once arrival fires for current destination
 };
+
+
+// ===== Achievement Registry =====
+// Each achievement has a stable `id` (never changes across versions).
+// Names and descriptions can be freely updated.  The save file stores
+// only IDs + timestamps + stats, so code changes never break saved progress.
+// To add a new achievement, just append an object to this array.
+
+const ACHIEVEMENTS = [
+  {
+    id: 'first_step',
+    name: 'First Step',
+    description: 'Arrive at your first destination',
+    check: (ctx) => ctx.event === 'arrival',
+  },
+  {
+    id: 'novice_navigator',
+    name: 'Novice Navigator',
+    description: 'Arrive at a coordinate destination from 2 km away',
+    check: (ctx) => ctx.event === 'arrival'
+                 && ctx.source === 'input'
+                 && ctx.initialDistance >= 2000,
+  },
+  {
+    id: 'master_wanderer',
+    name: 'Master Wanderer',
+    description: 'Arrive at a cast destination 100 km away',
+    check: (ctx) => ctx.event === 'arrival'
+                 && ctx.source === 'cast'
+                 && ctx.initialDistance >= 100000,
+  },
+  {
+    id: 'eternal_traveler',
+    name: 'Eternal Traveler',
+    description: 'Travel a cumulative 500 km across all destinations',
+    check: (ctx) => ctx.event === 'arrival'
+                 && ctx.totalDistance >= 500000,
+  },
+];
 
 // ===== DOM References =====
 const dom = {};
@@ -26,6 +66,9 @@ function cacheDom() {
   dom.castControls    = document.getElementById('cast-controls');
   dom.castBtn         = document.getElementById('cast-btn');
   dom.castCancelBtn   = document.getElementById('cast-cancel-btn');
+  dom.achievementBtn  = document.getElementById('achievement-btn');
+  dom.achievementPanel = document.getElementById('achievement-panel');
+  dom.achievementToast = document.getElementById('achievement-toast');
 }
 
 // ===== Geolocation =====
@@ -887,6 +930,12 @@ function render() {
   const ARRIVAL_RADIUS = Math.max(10, accuracy);
   const arrived = distance != null && distance < ARRIVAL_RADIUS;
 
+  // Fire achievement check on the transition into arrived state (once per destination)
+  if (arrived && !state.arrivedAtCurrent) {
+    state.arrivedAtCurrent = true;
+    checkAchievements('arrival');
+  }
+
   // Only show and rotate the arrow when a destination is active.
   // The arrow fades in via a CSS transition on the .visible class.
   if (state.destination && state.position && heading != null) {
@@ -1290,7 +1339,20 @@ function setDestination(input) {
   const parsed = parseDestinationInput(input);
   if (!parsed) return false;
 
-  state.destination = { lat: parsed.lat, lng: parsed.lng };
+  // Calculate initial distance from current GPS if available
+  let initialDistance = 0;
+  if (state.position) {
+    initialDistance = calculateDistance(
+      state.position.lat, state.position.lng,
+      parsed.lat, parsed.lng
+    );
+  }
+
+  state.destination = {
+    lat: parsed.lat, lng: parsed.lng,
+    source: 'input', initialDistance,
+  };
+  state.arrivedAtCurrent = false;
   localStorage.setItem(DEST_STORAGE_KEY, JSON.stringify(state.destination));
 
   dom.destInfo.textContent =
@@ -1307,7 +1369,11 @@ function setDestination(input) {
 function setDestinationFromCoords(lat, lng, distance, bearing) {
   if (!isValidCoordinate(lat, lng)) return false;
 
-  state.destination = { lat, lng };
+  state.destination = {
+    lat, lng,
+    source: 'cast', initialDistance: distance,
+  };
+  state.arrivedAtCurrent = false;
   localStorage.setItem(DEST_STORAGE_KEY, JSON.stringify(state.destination));
 
   const info = `Cast: ${lat.toFixed(5)}, ${lng.toFixed(5)} `
@@ -1325,14 +1391,210 @@ function loadDestination() {
   try {
     const saved = localStorage.getItem(DEST_STORAGE_KEY);
     if (!saved) return;
-    const { lat, lng } = JSON.parse(saved);
+    const data = JSON.parse(saved);
+    const { lat, lng } = data;
     if (isValidCoordinate(lat, lng)) {
-      state.destination = { lat, lng };
+      state.destination = {
+        lat, lng,
+        source: data.source || 'input',
+        initialDistance: data.initialDistance || 0,
+      };
       dom.destInfo.textContent = `Destination: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
       dom.destInfo.classList.remove('hidden');
     }
   } catch {
     // Corrupt data in storage — silently ignore
+  }
+}
+
+// ===== Achievements =====
+
+const ACHIEVEMENTS_KEY = 'compass_achievements';
+
+/**
+ * Loads the achievement save file from localStorage.
+ * Returns { unlocked: { id: timestamp, ... }, stats: { totalDistance: meters } }
+ */
+function loadAchievements() {
+  try {
+    const saved = localStorage.getItem(ACHIEVEMENTS_KEY);
+    if (saved) {
+      const data = JSON.parse(saved);
+      return {
+        unlocked: data.unlocked || {},
+        stats: { totalDistance: 0, ...data.stats },
+      };
+    }
+  } catch { /* corrupt data — start fresh */ }
+  return { unlocked: {}, stats: { totalDistance: 0 } };
+}
+
+function saveAchievements(data) {
+  localStorage.setItem(ACHIEVEMENTS_KEY, JSON.stringify(data));
+}
+
+/**
+ * Checks all achievements against the current context.
+ * Called once per arrival transition.
+ */
+function checkAchievements(event) {
+  const data = loadAchievements();
+
+  // Accumulate distance on arrival
+  if (event === 'arrival' && state.destination && state.destination.initialDistance) {
+    data.stats.totalDistance += state.destination.initialDistance;
+  }
+
+  const ctx = {
+    event,
+    source: state.destination ? state.destination.source : null,
+    initialDistance: state.destination ? state.destination.initialDistance : 0,
+    totalDistance: data.stats.totalDistance,
+  };
+
+  const newlyUnlocked = [];
+  for (const achievement of ACHIEVEMENTS) {
+    if (data.unlocked[achievement.id]) continue;
+    if (achievement.check(ctx)) {
+      data.unlocked[achievement.id] = Date.now();
+      newlyUnlocked.push(achievement);
+    }
+  }
+
+  // Always save — stats may have changed even if no new achievement
+  saveAchievements(data);
+
+  if (newlyUnlocked.length > 0) {
+    updateAchievementButton();
+    for (const a of newlyUnlocked) {
+      showAchievementToast(a);
+    }
+  }
+}
+
+/**
+ * Shows or hides the trophy button based on whether any achievements are unlocked.
+ */
+function updateAchievementButton() {
+  const data = loadAchievements();
+  const count = Object.keys(data.unlocked).length;
+  if (count > 0) {
+    dom.achievementBtn.textContent = `\uD83C\uDFC6 ${count}`;
+    dom.achievementBtn.classList.remove('hidden');
+  } else {
+    dom.achievementBtn.classList.add('hidden');
+  }
+}
+
+/**
+ * Shows a brief toast notification when an achievement unlocks.
+ */
+let toastTimeout = null;
+function showAchievementToast(achievement) {
+  dom.achievementToast.textContent = `\uD83C\uDFC6 ${achievement.name}`;
+  dom.achievementToast.classList.add('visible');
+
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => {
+    dom.achievementToast.classList.remove('visible');
+  }, 3000);
+}
+
+/**
+ * Opens the achievement panel overlay showing all achievements.
+ */
+function showAchievementPanel() {
+  const data = loadAchievements();
+  const list = dom.achievementPanel.querySelector('.achievement-list');
+  list.innerHTML = '';
+
+  for (const a of ACHIEVEMENTS) {
+    const unlockTime = data.unlocked[a.id];
+    const item = document.createElement('div');
+    item.className = 'achievement-item' + (unlockTime ? '' : ' locked');
+
+    const name = document.createElement('div');
+    name.className = 'achievement-name';
+    name.textContent = a.name;
+
+    const desc = document.createElement('div');
+    desc.className = 'achievement-desc';
+    desc.textContent = a.description;
+
+    item.appendChild(name);
+    item.appendChild(desc);
+
+    if (unlockTime) {
+      const date = document.createElement('div');
+      date.className = 'achievement-date';
+      date.textContent = new Date(unlockTime).toLocaleDateString();
+      item.appendChild(date);
+    }
+
+    list.appendChild(item);
+  }
+
+  // Show total distance stat
+  const statsEl = dom.achievementPanel.querySelector('.achievement-stats');
+  statsEl.textContent = `Total distance: ${formatDistance(data.stats.totalDistance)}`;
+
+  dom.achievementPanel.classList.add('visible');
+}
+
+function hideAchievementPanel() {
+  dom.achievementPanel.classList.remove('visible');
+  // Hide import area if it was open
+  const importArea = dom.achievementPanel.querySelector('.import-area');
+  if (importArea) importArea.classList.add('hidden');
+}
+
+/**
+ * Exports achievement data to clipboard as JSON.
+ */
+function exportAchievements() {
+  const data = loadAchievements();
+  const json = JSON.stringify(data);
+  const btn = dom.achievementPanel.querySelector('.export-btn');
+  const original = btn.textContent;
+
+  navigator.clipboard.writeText(json).then(() => {
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = original; }, 1200);
+  });
+}
+
+/**
+ * Imports achievement data from a JSON string, merging with existing progress.
+ */
+function importAchievements(jsonStr) {
+  try {
+    const imported = JSON.parse(jsonStr);
+    if (!imported.unlocked || !imported.stats) {
+      throw new Error('Invalid format');
+    }
+
+    const current = loadAchievements();
+
+    // Merge unlocked: keep the earlier timestamp for each achievement
+    for (const [id, timestamp] of Object.entries(imported.unlocked)) {
+      if (!current.unlocked[id] || timestamp < current.unlocked[id]) {
+        current.unlocked[id] = timestamp;
+      }
+    }
+
+    // Merge stats: take the higher value
+    current.stats.totalDistance = Math.max(
+      current.stats.totalDistance,
+      imported.stats.totalDistance || 0
+    );
+
+    saveAchievements(current);
+    updateAchievementButton();
+    showAchievementPanel(); // refresh the panel
+
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -1395,6 +1657,27 @@ async function init() {
   // Wire up cast controls
   dom.castBtn.addEventListener('click', onCast);
   dom.castCancelBtn.addEventListener('click', onCastCancel);
+
+  // Wire up achievement panel
+  dom.achievementBtn.addEventListener('click', showAchievementPanel);
+  dom.achievementPanel.querySelector('.panel-close').addEventListener('click', hideAchievementPanel);
+  dom.achievementPanel.querySelector('.panel-backdrop').addEventListener('click', hideAchievementPanel);
+  dom.achievementPanel.querySelector('.export-btn').addEventListener('click', exportAchievements);
+  dom.achievementPanel.querySelector('.import-toggle').addEventListener('click', () => {
+    const area = dom.achievementPanel.querySelector('.import-area');
+    area.classList.toggle('hidden');
+  });
+  dom.achievementPanel.querySelector('.import-btn').addEventListener('click', () => {
+    const input = dom.achievementPanel.querySelector('.import-input');
+    const ok = importAchievements(input.value.trim());
+    if (ok) {
+      input.value = '';
+    } else {
+      input.style.borderColor = '#e94560';
+      setTimeout(() => { input.style.borderColor = ''; }, 1500);
+    }
+  });
+  updateAchievementButton();
 
   // Kick off the render loop
   requestAnimationFrame(render);

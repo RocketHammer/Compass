@@ -325,6 +325,186 @@ html, body {
   margin-top: 8px;
 }
 
+/* ===== Achievement Button ===== */
+#achievement-btn {
+  cursor: pointer;
+  margin-left: auto;
+  -webkit-tap-highlight-color: rgba(233, 69, 96, 0.2);
+}
+
+/* ===== Achievement Toast ===== */
+#achievement-toast {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 20px;
+  border-radius: 0 0 8px 8px;
+  background: rgba(26, 26, 46, 0.95);
+  border: 1px solid #e94560;
+  border-top: none;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 500;
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s ease-in;
+}
+
+#achievement-toast.visible {
+  opacity: 1;
+}
+
+/* ===== Achievement Panel ===== */
+#achievement-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease-in;
+}
+
+#achievement-panel.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.panel-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.panel-content {
+  position: relative;
+  width: 90%;
+  max-width: 360px;
+  max-height: 80vh;
+  background: #1a1a2e;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.panel-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.panel-close {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+/* Achievement items */
+.achievement-item {
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  margin-bottom: 8px;
+}
+
+.achievement-item.locked {
+  opacity: 0.35;
+}
+
+.achievement-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.achievement-desc {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.achievement-date {
+  font-size: 0.7rem;
+  color: rgba(233, 69, 96, 0.7);
+  margin-top: 4px;
+}
+
+.achievement-stats {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.35);
+  text-align: center;
+  margin: 12px 0 8px;
+}
+
+/* Panel footer — export/import */
+.panel-footer {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.export-btn,
+.import-toggle {
+  padding: 6px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.export-btn:active,
+.import-toggle:active {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.import-area {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.import-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #eee;
+  font-size: 0.8rem;
+  outline: none;
+  transition: border-color 0.3s;
+}
+
+.import-btn {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 6px;
+  background: #e94560;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
 /* ===== Utility ===== */
 .hidden {
   display: none !important;

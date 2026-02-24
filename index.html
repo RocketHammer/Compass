@@ -22,7 +22,11 @@
     <header id="status-bar">
       <span id="gps-status" class="status-badge">GPS: waiting</span>
       <span id="heading-status" class="status-badge">Compass: waiting</span>
+      <span id="achievement-btn" class="status-badge hidden"></span>
     </header>
+
+    <!-- Achievement toast — brief notification on unlock -->
+    <div id="achievement-toast"></div>
 
     <main id="compass-container">
 
@@ -76,8 +80,29 @@
       <button id="permission-btn" class="hidden" type="button">
         Tap to enable compass
       </button>
-      <div id="app-version">v0.8</div>
+      <div id="app-version">v0.9</div>
     </footer>
+
+    <!-- Achievement panel overlay -->
+    <div id="achievement-panel">
+      <div class="panel-backdrop"></div>
+      <div class="panel-content">
+        <div class="panel-header">
+          <span class="panel-title">Achievements</span>
+          <button class="panel-close" type="button">&times;</button>
+        </div>
+        <div class="achievement-list"></div>
+        <div class="achievement-stats"></div>
+        <div class="panel-footer">
+          <button class="export-btn" type="button">Export</button>
+          <button class="import-toggle" type="button">Import</button>
+        </div>
+        <div class="import-area hidden">
+          <input type="text" class="import-input" placeholder="Paste achievement data">
+          <button class="import-btn" type="button">Load</button>
+        </div>
+      </div>
+    </div>
 
   </div>
 
