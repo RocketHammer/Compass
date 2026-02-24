@@ -1336,6 +1336,26 @@ function loadDestination() {
   }
 }
 
+// ===== Clipboard =====
+
+/**
+ * Copies coordinates to the clipboard and briefly flashes "Copied!" feedback.
+ * @param {'position'|'destination'} which — which coordinate pair to copy
+ */
+function copyCoords(which) {
+  const source = which === 'position' ? state.position : state.destination;
+  if (!source) return;
+
+  const text = `${source.lat.toFixed(6)}, ${source.lng.toFixed(6)}`;
+  const el = which === 'position' ? dom.currentCoords : dom.destInfo;
+  const original = el.textContent;
+
+  navigator.clipboard.writeText(text).then(() => {
+    el.textContent = 'Copied!';
+    setTimeout(() => { el.textContent = original; }, 1200);
+  });
+}
+
 // ===== Initialization =====
 
 async function init() {
@@ -1362,6 +1382,10 @@ async function init() {
       if (ok) dom.permissionBtn.classList.add('hidden');
     }, { once: true });
   }
+
+  // Tap-to-copy on coordinate displays
+  dom.currentCoords.addEventListener('click', () => copyCoords('position'));
+  dom.destInfo.addEventListener('click', () => copyCoords('destination'));
 
   // Wire up cast-a-point gesture (3 upward swipes over compass area)
   const container = document.getElementById('compass-container');
