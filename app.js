@@ -2143,13 +2143,29 @@ async function init() {
   // Start compass sensors.  On Android this succeeds immediately.
   // On iOS it may fail because requestPermission() requires a user gesture;
   // in that case we surface a button the user can tap.
+  //
+  // Edge case: Chrome/Firefox on iOS use WebKit but may not expose
+  // requestPermission(), so listeners attach successfully yet events never
+  // fire because iOS still withholds sensor data.  A 3-second timeout
+  // catches this and shows the permission button as a recovery path.
   const compassStarted = await startHeadingUpdates();
-  if (!compassStarted && typeof DeviceOrientationEvent.requestPermission === 'function') {
+
+  const showPermissionButton = () => {
     dom.permissionBtn.classList.remove('hidden');
     dom.permissionBtn.addEventListener('click', async () => {
       const ok = await startHeadingUpdates();
       if (ok) dom.permissionBtn.classList.add('hidden');
     }, { once: true });
+  };
+
+  if (!compassStarted && typeof DeviceOrientationEvent.requestPermission === 'function') {
+    showPermissionButton();
+  } else if (compassStarted && platform.isIOS) {
+    // Listeners attached but on iOS — events may be silently blocked.
+    // If no heading arrives within 3s, surface the permission button.
+    setTimeout(() => {
+      if (headingSource === 'unavailable') showPermissionButton();
+    }, 3000);
   }
 
   // Tap-to-copy on coordinate displays
