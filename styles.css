@@ -239,8 +239,7 @@ html, body {
   opacity: 0;
 }
 
-/* Lock compass rose visible in cast mode — keep current rotation so
-   the ring doesn't snap back to 0° while the arrow fades out. */
+/* Lock compass rose visible in cast mode */
 #app.cast-active #compass-rose {
   opacity: 1;
 }

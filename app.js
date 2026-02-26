@@ -198,6 +198,7 @@ const dom = {};
 
 function cacheDom() {
   dom.compassRose     = document.getElementById('compass-rose');
+  dom.arrowGroup      = document.getElementById('arrow-group');
   dom.bearingDisplay  = document.getElementById('bearing-display');
   dom.distanceDisplay = document.getElementById('distance-display');
   dom.gpsStatus       = document.getElementById('gps-status');
@@ -908,6 +909,7 @@ function enterCastMode() {
   const pickerDelay = wasHidden ? 50 : 450;
   setTimeout(() => {
     if (!state.castMode) return;  // user cancelled before delay elapsed
+    displayAngle = 0;
     dom.castPicker.classList.add('visible');
     dom.castControls.classList.add('visible');
 
@@ -1165,8 +1167,8 @@ function render() {
   // The arrow fades in via a CSS transition on the .visible class.
   if (state.destination && state.position && heading != null) {
     if (arrived) {
-      // Stop rotating the rose and switch to the arrival indicator
-      dom.compassRose.style.transform = 'none';
+      // Stop rotating the arrow and switch to the arrival indicator
+      dom.arrowGroup.setAttribute('transform', 'rotate(0,100,100)');
       dom.compassRose.classList.add('visible', 'arrived');
     } else {
       dom.compassRose.classList.remove('arrived');
@@ -1182,7 +1184,7 @@ function render() {
       // Fast enough to feel responsive, slow enough to filter sensor jitter.
       displayAngle += diff * 0.2;
 
-      dom.compassRose.style.transform = `rotate(${displayAngle}deg)`;
+      dom.arrowGroup.setAttribute('transform', `rotate(${displayAngle},100,100)`);
       dom.compassRose.classList.add('visible');
     }
   } else {

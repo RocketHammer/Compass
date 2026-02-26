@@ -43,13 +43,12 @@
           <circle cx="100" cy="100" r="95" fill="none"
                   stroke="rgba(255,255,255,0.1)" stroke-width="2"/>
 
-          <!-- Direction arrow — points up (0°).
-               JS rotates the parent #compass-rose so the arrow aims at
-               the destination (or north when no destination is set). -->
-          <path class="compass-arrow" d="M100 20 L82 115 L100 98 L118 115 Z" fill="#e94560"/>
-
-          <!-- Tail dot — visual anchor at the arrow's base -->
-          <circle class="compass-tail" cx="100" cy="155" r="6" fill="rgba(233,69,96,0.3)"/>
+          <!-- Arrow group — JS rotates this <g> so only the arrow and tail
+               spin while the outer ring and cast picker stay vertical. -->
+          <g id="arrow-group">
+            <path class="compass-arrow" d="M100 20 L82 115 L100 98 L118 115 Z" fill="#e94560"/>
+            <circle class="compass-tail" cx="100" cy="155" r="6" fill="rgba(233,69,96,0.3)"/>
+          </g>
 
           <!-- Arrival indicator — pulsing gold circle, hidden until within threshold -->
           <circle class="arrival-dot" cx="100" cy="100" r="24" fill="#FFD700" opacity="0"/>
